@@ -46,15 +46,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Configure star finder with extremely broad acceptance criteria
     let config = DAOStarFinderConfig {
-        threshold: 5.0,    // Very low threshold for maximum faint source detection
-        fwhm,              // Full-width half-maximum of stars (from CLI)
-        ratio: 1.0,        // Circular PSF
-        theta: 0.0,        // No rotation
-        sigma_radius: 1.5, // Kernel truncation
-        sharplo: -10.0,    // Extremely relaxed sharpness bounds - accept almost anything
-        sharphi: 10.0,     // Allow very sharp and very broad sources
-        roundlo: -10.0,    // Extremely relaxed roundness bounds - accept very elongated
-        roundhi: 10.0,     // Accept all roundness values
+        threshold: 5.0,        // Very low threshold for maximum faint source detection
+        fwhm,                  // Full-width half-maximum of stars (from CLI)
+        ratio: 1.0,            // Circular PSF
+        theta: 0.0,            // No rotation
+        sigma_radius: 1.5,     // Kernel truncation
+        sharplo: -10.0,        // Extremely relaxed sharpness bounds - accept almost anything
+        sharphi: 10.0,         // Allow very sharp and very broad sources
+        roundlo: -10.0,        // Extremely relaxed roundness bounds - accept very elongated
+        roundhi: 10.0,         // Accept all roundness values
         exclude_border: false, // Include border detections for maximum coverage
         brightest: Some(500),  // Keep many more sources
         peakmax: None,         // No peak limit
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (x, y, pixel) in gray_img.enumerate_pixels() {
         let gray_val = pixel[0];
         let rgb_pixel = Rgb([gray_val, gray_val, gray_val]);
-        
+
         // Each original pixel becomes a 2x2 block
         output_img.put_pixel(x * 2, y * 2, rgb_pixel);
         output_img.put_pixel(x * 2 + 1, y * 2, rgb_pixel);
@@ -124,13 +124,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Draw a hollow circle outline at the specified position, preserving center
-fn draw_circle_hollow(img: &mut RgbImage, cx: u32, cy: u32, radius: u32, color: Rgb<u8>, thickness: u32) {
+fn draw_circle_hollow(
+    img: &mut RgbImage,
+    cx: u32,
+    cy: u32,
+    radius: u32,
+    color: Rgb<u8>,
+    thickness: u32,
+) {
     let (width, height) = img.dimensions();
     let center_preserve_radius = 6; // Don't overwrite pixels within 6 pixels of center
 
     for angle in 0..360 {
         let rad = (angle as f64) * std::f64::consts::PI / 180.0;
-        
+
         // Draw multiple concentric circles for thickness
         for t in 0..thickness {
             let r = radius + t;
@@ -148,7 +155,14 @@ fn draw_circle_hollow(img: &mut RgbImage, cx: u32, cy: u32, radius: u32, color: 
 }
 
 /// Draw a hollow cross at the specified position, preserving center
-fn draw_cross_hollow(img: &mut RgbImage, cx: u32, cy: u32, size: u32, color: Rgb<u8>, thickness: u32) {
+fn draw_cross_hollow(
+    img: &mut RgbImage,
+    cx: u32,
+    cy: u32,
+    size: u32,
+    color: Rgb<u8>,
+    thickness: u32,
+) {
     let (width, height) = img.dimensions();
     let center_preserve_radius = 4; // Don't overwrite pixels within 4 pixels of center
 
