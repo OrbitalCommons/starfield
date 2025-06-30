@@ -298,13 +298,7 @@ impl IRAFStarFinder {
     }
 
     /// Measure properties of a detected star using image moments
-    fn measure_star(
-        &self,
-        data: &Array2<f64>,
-        x: usize,
-        y: usize,
-        id: usize,
-    ) -> Option<IRAFStar> {
+    fn measure_star(&self, data: &Array2<f64>, x: usize, y: usize, id: usize) -> Option<IRAFStar> {
         let kernel_shape = self.kernel.data.dim();
 
         // Extract cutouts centered on the star

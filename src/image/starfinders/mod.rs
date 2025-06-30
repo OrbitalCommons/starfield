@@ -7,5 +7,5 @@ pub mod dao;
 pub mod iraf;
 
 // Re-export commonly used types
-pub use dao::{DaoStar, DAOStarFinder, DAOStarFinderConfig};
+pub use dao::{DAOStarFinder, DAOStarFinderConfig, DaoStar};
 pub use iraf::{IRAFStar, IRAFStarFinder, IRAFStarFinderConfig};
