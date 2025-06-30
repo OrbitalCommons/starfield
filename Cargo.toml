@@ -1,6 +1,6 @@
 [package]
 name = "starfield"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Matthew Goodman"]
 description = "Star catalog and celestial mechanics calculations (inspired by skyfield)"
