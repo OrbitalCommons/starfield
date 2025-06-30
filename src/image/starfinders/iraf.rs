@@ -274,7 +274,10 @@ impl IRAFStarFinder {
 
                         if ny >= 0
                             && ny < convolved.nrows() as i32
-                            && nx >= 0 && nx < convolved.ncols() as i32 && convolved[[ny as usize, nx as usize]] >= value {
+                            && nx >= 0
+                            && nx < convolved.ncols() as i32
+                            && convolved[[ny as usize, nx as usize]] >= value
+                        {
                             is_peak = false;
                             break;
                         }
