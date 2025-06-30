@@ -1,3 +1,4 @@
+use super::StellarSource;
 use ndarray::{s, Array2, Axis};
 use std::f64::consts::PI;
 
@@ -12,7 +13,20 @@ pub struct DaoStar {
     pub roundness2: f64,
     pub peak: f64,
     pub flux: f64,
-    pub mag: f64,
+}
+
+impl StellarSource for DaoStar {
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    fn get_centroid(&self) -> (f64, f64) {
+        (self.x_centroid, self.y_centroid)
+    }
+
+    fn flux(&self) -> f64 {
+        self.flux
+    }
 }
 
 /// Configuration for DAOStarFinder
@@ -28,14 +42,10 @@ pub struct DAOStarFinderConfig {
     pub theta: f64,
     /// Truncation radius in units of sigma
     pub sigma_radius: f64,
-    /// Lower bound on sharpness
-    pub sharplo: f64,
-    /// Upper bound on sharpness
-    pub sharphi: f64,
-    /// Lower bound on roundness
-    pub roundlo: f64,
-    /// Upper bound on roundness
-    pub roundhi: f64,
+    /// Sharpness range (inclusive)
+    pub sharpness: std::ops::RangeInclusive<f64>,
+    /// Roundness range (inclusive)
+    pub roundness: std::ops::RangeInclusive<f64>,
     /// Exclude sources near borders
     pub exclude_border: bool,
     /// Keep only N brightest sources
@@ -54,10 +64,8 @@ impl Default for DAOStarFinderConfig {
             ratio: 1.0,
             theta: 0.0,
             sigma_radius: 1.5,
-            sharplo: 0.2,
-            sharphi: 1.0,
-            roundlo: -1.0,
-            roundhi: 1.0,
+            sharpness: 0.2..=1.0,
+            roundness: -1.0..=1.0,
             exclude_border: false,
             brightest: None,
             peakmax: None,
@@ -376,7 +384,6 @@ impl DAOStarFinder {
 
         // Calculate flux
         let flux: f64 = data_cutout.sum();
-        let mag = -2.5 * flux.log10();
 
         Some(DaoStar {
             id,
@@ -387,7 +394,6 @@ impl DAOStarFinder {
             roundness2,
             peak,
             flux,
-            mag,
         })
     }
 
@@ -511,12 +517,9 @@ impl DAOStarFinder {
         stars
             .into_iter()
             .filter(|star| {
-                star.sharpness >= self.config.sharplo
-                    && star.sharpness <= self.config.sharphi
-                    && star.roundness1 >= self.config.roundlo
-                    && star.roundness1 <= self.config.roundhi
-                    && star.roundness2 >= self.config.roundlo
-                    && star.roundness2 <= self.config.roundhi
+                self.config.sharpness.contains(&star.sharpness)
+                    && self.config.roundness.contains(&star.roundness1)
+                    && self.config.roundness.contains(&star.roundness2)
                     && star.x_centroid.is_finite()
                     && star.y_centroid.is_finite()
                     && star.flux.is_finite()

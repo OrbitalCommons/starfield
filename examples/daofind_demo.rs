@@ -1,34 +1,51 @@
+use clap::{Parser, ValueEnum};
 use image::{ImageBuffer, Rgb, RgbImage};
 use ndarray::Array2;
-use starfield::image::starfinders::{DAOStarFinder, DAOStarFinderConfig};
-/// DAOStarFinder demonstration with PNG image processing
-///
-/// This example loads a PNG image, detects stars using the DAOStarFinder algorithm,
-/// and outputs an overlay image with detected stars marked.
-use std::env;
+use starfield::image::starfinders::{
+    DAOStarFinder, DAOStarFinderConfig, IRAFStarFinder, IRAFStarFinderConfig, StellarSource,
+};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "daofind_demo")]
+#[command(about = "Star detection demo using DAO or IRAF algorithms")]
+struct Args {
+    /// Input PNG image file
+    input: PathBuf,
+
+    /// Output PNG image file
+    output: PathBuf,
+
+    /// Detection method to use
+    #[arg(short, long, default_value = "dao")]
+    method: DetectionMethod,
+
+    /// Full-width half-maximum of stars (default: 4.0)
+    #[arg(long, default_value = "4.0")]
+    fwhm: f64,
+
+    /// Detection threshold
+    #[arg(long, default_value = "5.0")]
+    threshold: f64,
+}
+
+#[derive(Clone, ValueEnum)]
+enum DetectionMethod {
+    /// Use DAOStarFinder algorithm
+    Dao,
+    /// Use IRAFStarFinder algorithm
+    Iraf,
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
 
-    if args.len() < 3 || args.len() > 4 {
-        eprintln!("Usage: {} <input.png> <output.png> [fwhm]", args[0]);
-        eprintln!("Detects stars in the input PNG and creates an overlay in the output PNG");
-        eprintln!("  fwhm: Full-width half-maximum of stars (default: 4.0, use larger values like 8-12 for broader PSFs)");
-        std::process::exit(1);
-    }
+    let input_path = &args.input;
+    let output_path = &args.output;
+    let fwhm = args.fwhm;
+    let threshold = args.threshold;
 
-    let input_path = &args[1];
-    let output_path = &args[2];
-    let fwhm = if args.len() == 4 {
-        args[3].parse::<f64>().unwrap_or_else(|_| {
-            eprintln!("Error: FWHM must be a valid number");
-            std::process::exit(1);
-        })
-    } else {
-        4.0
-    };
-
-    println!("Loading image: {}", input_path);
+    println!("Loading image: {}", input_path.display());
 
     // Load the input image
     let img = image::open(input_path)?;
@@ -44,31 +61,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Image dimensions: {}x{}", width, height);
 
-    // Configure star finder with extremely broad acceptance criteria
-    let config = DAOStarFinderConfig {
-        threshold: 5.0,        // Very low threshold for maximum faint source detection
-        fwhm,                  // Full-width half-maximum of stars (from CLI)
-        ratio: 1.0,            // Circular PSF
-        theta: 0.0,            // No rotation
-        sigma_radius: 1.5,     // Kernel truncation
-        sharplo: -10.0,        // Extremely relaxed sharpness bounds - accept almost anything
-        sharphi: 10.0,         // Allow very sharp and very broad sources
-        roundlo: -10.0,        // Extremely relaxed roundness bounds - accept very elongated
-        roundhi: 10.0,         // Accept all roundness values
-        exclude_border: false, // Include border detections for maximum coverage
-        brightest: Some(500),  // Keep many more sources
-        peakmax: None,         // No peak limit
-        min_separation: 1.0,   // Minimal separation to pack in more sources
+    // Detect stars using the specified method
+    let stars: Vec<Box<dyn StellarSource>> = match args.method {
+        DetectionMethod::Dao => {
+            println!(
+                "Using DAOStarFinder with threshold={}, fwhm={}",
+                threshold, fwhm
+            );
+
+            let config = DAOStarFinderConfig {
+                threshold,
+                fwhm,
+                ratio: 1.0,
+                theta: 0.0,
+                sigma_radius: 1.5,
+                sharpness: -10.0..=10.0,
+                roundness: -10.0..=10.0,
+                exclude_border: false,
+                brightest: Some(500),
+                peakmax: None,
+                min_separation: 1.0,
+            };
+
+            let star_finder = DAOStarFinder::new(config)?;
+            star_finder
+                .find_stars(&data, None)
+                .into_iter()
+                .map(|s| Box::new(s) as Box<dyn StellarSource>)
+                .collect()
+        }
+        DetectionMethod::Iraf => {
+            println!(
+                "Using IRAFStarFinder with threshold={}, fwhm={}",
+                threshold, fwhm
+            );
+
+            let config = IRAFStarFinderConfig {
+                threshold,
+                fwhm,
+                sigma_radius: 1.5,
+                minsep_fwhm: 1.0,
+                sharpness: 0.2..=1.0,
+                roundness: -1.0..=1.0,
+                exclude_border: false,
+                brightest: Some(500),
+                peakmax: None,
+                min_separation: Some(1.0),
+            };
+
+            let star_finder = IRAFStarFinder::new(config)?;
+            star_finder
+                .find_stars(&data, None)
+                .into_iter()
+                .map(|s| Box::new(s) as Box<dyn StellarSource>)
+                .collect()
+        }
     };
-
-    println!(
-        "Detecting stars with threshold={}, fwhm={}",
-        config.threshold, config.fwhm
-    );
-
-    // Create star finder and detect sources
-    let star_finder = DAOStarFinder::new(config)?;
-    let stars = star_finder.find_stars(&data, None);
 
     println!("Found {} stars", stars.len());
 
@@ -92,10 +140,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use soft blue color for all overlays
     let soft_blue = Rgb([100, 150, 255]);
 
-    // Draw detected stars
+    // Draw detected stars using the common StellarSource trait
     for (i, star) in stars.iter().enumerate() {
-        let x = (star.x_centroid * 2.0) as u32;
-        let y = (star.y_centroid * 2.0) as u32;
+        let (x_pos, y_pos) = star.get_centroid();
+        let x = (x_pos * 2.0) as u32;
+        let y = (y_pos * 2.0) as u32;
 
         // Draw a thin circle around each detected star (preserve center)
         draw_circle_hollow(&mut output_img, x, y, 20, soft_blue, 1);
@@ -105,20 +154,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if i < 10 {
             println!(
-                "Star {}: x={:.1}, y={:.1}, mag={:.2}, peak={:.1}, sharpness={:.3}",
-                i + 1,
-                star.x_centroid,
-                star.y_centroid,
-                star.mag,
-                star.peak,
-                star.sharpness
+                "Star {}: x={:.1}, y={:.1}, mag={:.2}, flux={:.1}",
+                star.id(),
+                x_pos,
+                y_pos,
+                star.mag(),
+                star.flux()
             );
         }
     }
 
     // Save the output image
     output_img.save(output_path)?;
-    println!("Saved output image: {}", output_path);
+    println!("Saved output image: {}", output_path.display());
 
     Ok(())
 }
