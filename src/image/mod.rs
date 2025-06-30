@@ -1,5 +1,7 @@
 use ndarray::Array2;
 
+pub mod starfinders;
+
 /// Performs sigma clipping on a 2D array of f64 values.
 /// Values outside the clipping bounds are set to the bounds rather than NaN.
 ///
