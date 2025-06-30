@@ -1,6 +1,6 @@
 use image::{ImageBuffer, Rgb, RgbImage};
 use ndarray::Array2;
-use starfield::image::daofind::{DAOStarFinder, DAOStarFinderConfig};
+use starfield::image::starfinders::{DAOStarFinder, DAOStarFinderConfig};
 /// DAOStarFinder demonstration with PNG image processing
 ///
 /// This example loads a PNG image, detects stars using the DAOStarFinder algorithm,

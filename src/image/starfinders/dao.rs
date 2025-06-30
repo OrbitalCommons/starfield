@@ -3,7 +3,7 @@ use std::f64::consts::PI;
 
 /// Result type for star detection
 #[derive(Debug, Clone)]
-pub struct Star {
+pub struct DaoStar {
     pub id: usize,
     pub x_centroid: f64,
     pub y_centroid: f64,
@@ -214,7 +214,7 @@ impl DAOStarFinder {
     }
 
     /// Find stars in the input image
-    pub fn find_stars(&self, data: &Array2<f64>, mask: Option<&Array2<bool>>) -> Vec<Star> {
+    pub fn find_stars(&self, data: &Array2<f64>, mask: Option<&Array2<bool>>) -> Vec<DaoStar> {
         // Convolve the image with the kernel
         let convolved = convolve2d(data, &self.kernel.data);
 
@@ -335,7 +335,7 @@ impl DAOStarFinder {
         x: usize,
         y: usize,
         id: usize,
-    ) -> Option<Star> {
+    ) -> Option<DaoStar> {
         let kernel_shape = self.kernel.data.dim();
 
         // Extract cutouts centered on the star
@@ -383,7 +383,7 @@ impl DAOStarFinder {
         let flux: f64 = data_cutout.sum();
         let mag = -2.5 * flux.log10();
 
-        Some(Star {
+        Some(DaoStar {
             id,
             x_centroid,
             y_centroid,
@@ -512,7 +512,7 @@ impl DAOStarFinder {
     }
 
     /// Apply sharpness, roundness, and peak filters
-    fn apply_filters(&self, stars: Vec<Star>) -> Vec<Star> {
+    fn apply_filters(&self, stars: Vec<DaoStar>) -> Vec<DaoStar> {
         stars
             .into_iter()
             .filter(|star| {
