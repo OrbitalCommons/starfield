@@ -568,7 +568,7 @@ mod tests {
         assert!((north_pole.y - 0.0).abs() < 1e-15);
         assert!((north_pole.z - 1.0).abs() < 1e-15);
 
-        let (ra, dec, dist) = north_pole.to_spherical();
+        let (_, dec, dist) = north_pole.to_spherical();
         assert!((dec - PI / 2.0).abs() < 1e-15);
         assert!((dist - 1.0).abs() < 1e-15);
 

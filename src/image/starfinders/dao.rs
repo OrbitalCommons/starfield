@@ -72,8 +72,6 @@ struct StarFinderKernel {
     data: Array2<f64>,
     mask: Array2<bool>,
     gaussian_kernel: Array2<f64>,
-    xsigma: f64,
-    ysigma: f64,
     xradius: usize,
     yradius: usize,
     npixels: usize,
@@ -165,8 +163,6 @@ impl StarFinderKernel {
             data,
             mask: mask.mapv(|v| v),
             gaussian_kernel,
-            xsigma,
-            ysigma,
             xradius,
             yradius,
             npixels,
@@ -304,13 +300,9 @@ impl DAOStarFinder {
 
                         if ny >= 0
                             && ny < convolved.nrows() as i32
-                            && nx >= 0
-                            && nx < convolved.ncols() as i32
-                        {
-                            if convolved[[ny as usize, nx as usize]] >= value {
-                                is_peak = false;
-                                break;
-                            }
+                            && nx >= 0 && nx < convolved.ncols() as i32 && convolved[[ny as usize, nx as usize]] >= value {
+                            is_peak = false;
+                            break;
                         }
                     }
                     if !is_peak {
@@ -525,7 +517,7 @@ impl DAOStarFinder {
                     && star.x_centroid.is_finite()
                     && star.y_centroid.is_finite()
                     && star.flux.is_finite()
-                    && self.config.peakmax.map_or(true, |max| star.peak <= max)
+                    && self.config.peakmax.is_none_or(|max| star.peak <= max)
             })
             .collect()
     }

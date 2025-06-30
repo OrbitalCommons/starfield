@@ -274,13 +274,9 @@ impl IRAFStarFinder {
 
                         if ny >= 0
                             && ny < convolved.nrows() as i32
-                            && nx >= 0
-                            && nx < convolved.ncols() as i32
-                        {
-                            if convolved[[ny as usize, nx as usize]] >= value {
-                                is_peak = false;
-                                break;
-                            }
+                            && nx >= 0 && nx < convolved.ncols() as i32 && convolved[[ny as usize, nx as usize]] >= value {
+                            is_peak = false;
+                            break;
                         }
                     }
                     if !is_peak {
@@ -430,7 +426,7 @@ impl IRAFStarFinder {
                     && star.y_centroid.is_finite()
                     && star.flux.is_finite()
                     && star.npix > 1
-                    && self.config.peakmax.map_or(true, |max| star.peak <= max)
+                    && self.config.peakmax.is_none_or(|max| star.peak <= max)
             })
             .collect()
     }
@@ -620,6 +616,24 @@ mod tests {
         assert_eq!(moments.m00, 1.0);
         assert_eq!(moments.m10, 1.0); // x=1
         assert_eq!(moments.m01, 1.0); // y=1
+        assert_eq!(moments.m11, 1.0); // xy=1*1=1
+        assert_eq!(moments.m20, 1.0); // x^2=1^2=1
+        assert_eq!(moments.m02, 1.0); // y^2=1^2=1
+
+        // Test with a 2x2 pattern
+        let mut data2 = Array2::zeros((3, 3));
+        data2[[0, 0]] = 1.0;
+        data2[[0, 1]] = 1.0;
+        data2[[1, 0]] = 1.0;
+        data2[[1, 1]] = 1.0;
+
+        let moments2 = ImageMoments::calculate(&data2);
+        assert_eq!(moments2.m00, 4.0); // total intensity
+        assert_eq!(moments2.m10, 2.0); // sum of x coordinates: 0+1+0+1 = 2
+        assert_eq!(moments2.m01, 2.0); // sum of y coordinates: 0+0+1+1 = 2
+        assert_eq!(moments2.m11, 1.0); // sum of xy: 0*0 + 1*0 + 0*1 + 1*1 = 1
+        assert_eq!(moments2.m20, 2.0); // sum of x^2: 0^2 + 1^2 + 0^2 + 1^2 = 2
+        assert_eq!(moments2.m02, 2.0); // sum of y^2: 0^2 + 0^2 + 1^2 + 1^2 = 2
     }
 
     #[test]
