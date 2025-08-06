@@ -1,6 +1,6 @@
 # Starfield
 
-Star catalog and celestial mechanics calculations inspired by Skyfield.
+Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms inspired by Skyfield.
 
 ## Features
 
