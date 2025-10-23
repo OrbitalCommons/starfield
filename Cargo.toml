@@ -1,6 +1,6 @@
 [package]
 name = "starfield"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["Matthew Goodman"]
 description = "Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms (inspired by skyfield)"
@@ -16,7 +16,7 @@ nalgebra = "0.32"           # Linear algebra
 time = "0.3"                # Time handling
 num = "0.4"                 # Numerical types
 lazy_static = "1.4"         # Lazy initialization
-ndarray = "0.15"            # N-dimensional arrays
+ndarray = "0.16.1"            # N-dimensional arrays
 
 # Data handling
 serde = { version = "1.0", features = ["derive"] }
