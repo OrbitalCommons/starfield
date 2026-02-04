@@ -364,8 +364,8 @@ impl Segment {
     }
 
     fn load_data(&mut self) -> Result<&SegmentData> {
-        if self.data.is_some() {
-            return Ok(self.data.as_ref().unwrap());
+        if let Some(ref data) = self.data {
+            return Ok(data);
         }
 
         let array = self.daf.read_array(self.start_i, self.end_i)?;
