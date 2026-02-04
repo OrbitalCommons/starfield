@@ -4,6 +4,9 @@
 //! conversions between them, and computing with calendar dates. It is inspired by
 //! the Python Skyfield library's time handling.
 
+#[cfg(feature = "python-tests")]
+mod python_tests;
+
 use crate::constants::{DAY_S, GREGORIAN_START, J2000, TT_MINUS_TAI, TT_MINUS_TAI_S};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 // Import constants from std
@@ -405,6 +408,39 @@ impl Timescale {
             tai_fraction: Some(frac - TT_MINUS_TAI),
             ut1_fraction: None,
             tdb_fraction: None,
+            delta_t: None,
+            shape: None,
+        }
+    }
+
+    /// Create a time from a TDB calendar date
+    ///
+    /// Accepts the same calendar input formats as `tt()` and `utc()`.
+    /// Converts calendar to Julian day parts, then applies the TDB→TT correction.
+    pub fn tdb<T: Into<CalendarInput>>(&self, date: T) -> Time {
+        let input = date.into();
+        let (whole, tdb_frac) = self.calendar_to_jd_with_fraction(&input);
+
+        // Apply TDB→TT correction: TT = TDB - (TDB-TT)
+        let jd_approx = whole + tdb_frac;
+        let t = (jd_approx - J2000) / 36525.0;
+        let tdb_minus_tt_days = (0.001657 * f64::sin(628.3076 * t + 6.2401)
+            + 0.000022 * f64::sin(575.3385 * t + 4.2970)
+            + 0.000014 * f64::sin(1256.6152 * t + 6.1969)
+            + 0.000005 * f64::sin(606.9777 * t + 4.0212)
+            + 0.000005 * f64::sin(52.9691 * t + 0.4444)
+            + 0.000002 * f64::sin(21.3299 * t + 5.5431)
+            + 0.000010 * t * f64::sin(628.3076 * t + 4.2490))
+            / DAY_S;
+        let tt_frac = tdb_frac - tdb_minus_tt_days;
+
+        Time {
+            ts: self.clone(),
+            whole,
+            tt_fraction: tt_frac,
+            tai_fraction: Some(tt_frac - TT_MINUS_TAI),
+            ut1_fraction: None,
+            tdb_fraction: Some(tdb_frac),
             delta_t: None,
             shape: None,
         }
@@ -1379,5 +1415,49 @@ mod tests {
         let delta_t = time.delta_t();
         let expected_delta_t = 62.92 + 0.32 * (2020.0 - 2000.0);
         assert_relative_eq!(delta_t, expected_delta_t, epsilon = 3.0); // Increased tolerance due to calendar conversion issues
+    }
+
+    #[test]
+    fn test_tdb_calendar_constructor() {
+        let ts = Timescale::default();
+
+        // tdb() and tt() should both handle the same calendar input consistently
+        // and the TDB vs TT values should differ by only the TDB-TT correction
+        let t_tdb = ts.tdb((2020, 6, 21, 12, 0, 0.0));
+        let t_tt = ts.tt((2020, 6, 21, 12, 0, 0.0));
+
+        // Both should have tdb_fraction set
+        assert!(t_tdb.tdb_fraction.is_some());
+
+        // The TT values should be very close (< 2ms difference from TDB-TT correction)
+        let tt_diff = (t_tdb.tt() - t_tt.tt()).abs() * DAY_S;
+        assert!(
+            tt_diff < 0.002,
+            "TDB and TT constructors' TT values should differ by < 2ms, got {tt_diff}s"
+        );
+    }
+
+    #[test]
+    fn test_tdb_constructor_stores_tdb_fraction() {
+        let ts = Timescale::default();
+
+        let t = ts.tdb((2024, 1, 1, 0, 0, 0.0));
+        // tdb_fraction should be populated
+        assert!(t.tdb_fraction.is_some());
+        // tdb() should return a valid JD
+        assert!(t.tdb() > 2460000.0);
+    }
+
+    #[test]
+    fn test_tdb_constructor_matches_tdb_jd() {
+        let ts = Timescale::default();
+
+        // Use tdb_jd with a known JD, and verify tdb() stores the right value
+        let t = ts.tdb_jd(J2000);
+        assert_relative_eq!(t.tdb(), J2000, epsilon = 1e-10);
+
+        // TDB-TT should be < 2ms
+        let tt_diff = (t.tdb() - t.tt()).abs() * DAY_S;
+        assert!(tt_diff < 0.002, "TDB-TT should be < 2ms, got {tt_diff}s");
     }
 }
