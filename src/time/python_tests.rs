@@ -1,7 +1,7 @@
-//! Python comparison tests for delta-T and sidereal time
+//! Python comparison tests for delta-T, sidereal time, and Earth rotation matrices
 //!
-//! Validates our Table S15.2020 spline, GMST, GAST, and equation of equinoxes
-//! against Python Skyfield across multiple epochs.
+//! Validates delta-T spline, GMST/GAST, and M/MT/C/CT matrices against
+//! Python Skyfield across a range of dates from 2000 to 2023.
 
 #[cfg(test)]
 mod tests {
@@ -15,6 +15,27 @@ mod tests {
         match parsed {
             PythonResult::String(s) => s.parse::<f64>().expect("Failed to parse f64"),
             _ => panic!("Expected String result, got {:?}", parsed),
+        }
+    }
+
+    fn parse_f64_array(result: &str) -> Vec<f64> {
+        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
+        match parsed {
+            PythonResult::Array {
+                dtype,
+                shape: _,
+                data,
+            } => {
+                assert_eq!(dtype, "float64");
+                let n = data.len() / 8;
+                let mut values = Vec::with_capacity(n);
+                for i in 0..n {
+                    let bytes: [u8; 8] = data[i * 8..(i + 1) * 8].try_into().unwrap();
+                    values.push(f64::from_le_bytes(bytes));
+                }
+                values
+            }
+            _ => panic!("Expected Array result, got {:?}", parsed),
         }
     }
 
@@ -48,6 +69,43 @@ rust.collect_string(str(t.{prop}))
             ))
             .unwrap_or_else(|e| panic!("Python failed for {prop} at JD {jd}: {e}"));
         parse_f64(&py_result)
+    }
+
+    fn fetch_matrix(bridge: &PyRustBridge, jd: f64, prop: &str) -> Vec<f64> {
+        let py_result = bridge
+            .run_py_to_json(&format!(
+                r#"
+import numpy as np
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd({jd})
+rust.collect_array(np.array(t.{prop}.flatten(), dtype=np.float64))
+"#
+            ))
+            .unwrap_or_else(|e| panic!("Python failed for {prop} at JD {jd}: {e}"));
+        let vals = parse_f64_array(&py_result);
+        assert_eq!(vals.len(), 9, "{prop} matrix should have 9 elements");
+        vals
+    }
+
+    fn assert_matrices_match(
+        rust: &nalgebra::Matrix3<f64>,
+        py: &[f64],
+        label: &str,
+        jd: f64,
+        epsilon: f64,
+    ) {
+        for i in 0..3 {
+            for j in 0..3 {
+                let rust_val = rust[(i, j)];
+                let py_val = py[i * 3 + j];
+                let diff = (rust_val - py_val).abs();
+                assert!(
+                    diff < epsilon,
+                    "{label}[{i},{j}] at JD {jd}: rust={rust_val} python={py_val} diff={diff} (tol={epsilon})"
+                );
+            }
+        }
     }
 
     const TEST_JDS: [f64; 5] = [
@@ -181,7 +239,6 @@ rust.collect_string(str(t.{prop}))
         let py_gmst = fetch_scalar(&bridge, 2451545.0, "gmst");
         let rust_gmst = ts.tt_jd(2451545.0, None).gmst();
 
-        // Tighter at J2000 where delta-T differences are smallest
         assert_relative_eq!(rust_gmst, py_gmst, epsilon = 5e-4);
     }
 
@@ -224,32 +281,6 @@ rust.collect_string(str(t.{prop}))
     }
 
     #[test]
-    fn test_equation_of_equinoxes_multi_date_vs_skyfield() {
-        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
-        let ts = Timescale::default();
-
-        for &jd in &TEST_JDS {
-            let py_result = bridge
-                .run_py_to_json(&format!(
-                    r#"
-from skyfield.api import load
-ts = load.timescale()
-t = ts.tt_jd({jd})
-rust.collect_string(str(t.gast - t.gmst))
-"#
-                ))
-                .expect("Failed to run Python code");
-
-            let py_eq_eq = parse_f64(&py_result);
-            let t = ts.tt_jd(jd, None);
-            let rust_eq_eq = t.gast() - t.gmst();
-
-            // Delta-T cancels out, so this can be tight
-            assert_relative_eq!(rust_eq_eq, py_eq_eq, epsilon = 1e-5);
-        }
-    }
-
-    #[test]
     fn test_gmst_in_valid_range() {
         let ts = Timescale::default();
 
@@ -279,8 +310,6 @@ rust.collect_string(str(t.gast - t.gmst))
     fn test_sidereal_rate() {
         let ts = Timescale::default();
 
-        // One sidereal day ≈ 23h 56m 4s = 0.99726957 solar days
-        // After one sidereal day, GMST should advance ~24 hours
         let jd1 = 2451545.0;
         let jd2 = jd1 + 0.99726957;
 
@@ -293,7 +322,172 @@ rust.collect_string(str(t.gast - t.gmst))
             gmst2 + 24.0 - gmst1
         };
 
-        // Should be very close to 24 hours
         assert_relative_eq!(advance, 24.0, epsilon = 0.01);
+    }
+
+    // --- Equation of equinoxes ---
+
+    #[test]
+    fn test_equation_of_equinoxes_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let py_result = bridge
+                .run_py_to_json(&format!(
+                    r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd({jd})
+rust.collect_string(str(t.gast - t.gmst))
+"#
+                ))
+                .expect("Failed to run Python code");
+
+            let py_eq_eq = parse_f64(&py_result);
+            let rust_eq_eq = ts.tt_jd(jd, None).gast() - ts.tt_jd(jd, None).gmst();
+
+            assert_relative_eq!(rust_eq_eq, py_eq_eq, epsilon = 1e-5);
+        }
+    }
+
+    // --- M matrix tests ---
+
+    #[test]
+    fn test_m_matrix_at_j2000_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+        let jd = 2451545.0;
+
+        let py_m = fetch_matrix(&bridge, jd, "M");
+        let m = ts.tt_jd(jd, None).m_matrix();
+
+        // 1e-8 accounts for our 77-term nutation vs Skyfield's full model
+        assert_matrices_match(&m, &py_m, "M", jd, 1e-8);
+    }
+
+    #[test]
+    fn test_m_matrix_at_multiple_dates_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let py_m = fetch_matrix(&bridge, jd, "M");
+            let m = ts.tt_jd(jd, None).m_matrix();
+            assert_matrices_match(&m, &py_m, "M", jd, 1e-8);
+        }
+    }
+
+    // --- MT matrix tests ---
+
+    #[test]
+    fn test_mt_matrix_at_multiple_dates_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let py_mt = fetch_matrix(&bridge, jd, "MT");
+            let mt = ts.tt_jd(jd, None).mt_matrix();
+            assert_matrices_match(&mt, &py_mt, "MT", jd, 1e-8);
+        }
+    }
+
+    // --- C matrix tests ---
+
+    #[test]
+    fn test_c_matrix_at_multiple_dates_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+
+        // C matrix includes Earth rotation, sensitive to delta-T (UT1 offset).
+        // Our delta-T approximation differs from Skyfield's IERS daily data,
+        // so 1e-5 is the tightest achievable tolerance here.
+        for &jd in &TEST_JDS {
+            let py_c = fetch_matrix(&bridge, jd, "C");
+            let c = ts.tt_jd(jd, None).c_matrix();
+            assert_matrices_match(&c, &py_c, "C", jd, 1e-5);
+        }
+    }
+
+    // --- CT matrix tests ---
+
+    #[test]
+    fn test_ct_matrix_at_multiple_dates_vs_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let py_ct = fetch_matrix(&bridge, jd, "CT");
+            let ct = ts.tt_jd(jd, None).ct_matrix();
+            assert_matrices_match(&ct, &py_ct, "CT", jd, 1e-5);
+        }
+    }
+
+    // --- Structural properties ---
+
+    #[test]
+    fn test_m_matrix_orthogonality() {
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let m = ts.tt_jd(jd, None).m_matrix();
+            let product = m.transpose() * m;
+            for i in 0..3 {
+                for j in 0..3 {
+                    let expected = if i == j { 1.0 } else { 0.0 };
+                    assert_relative_eq!(product[(i, j)], expected, epsilon = 1e-14);
+                }
+            }
+            assert_relative_eq!(m.determinant(), 1.0, epsilon = 1e-14);
+        }
+    }
+
+    #[test]
+    fn test_c_matrix_orthogonality() {
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let c = ts.tt_jd(jd, None).c_matrix();
+            let product = c.transpose() * c;
+            for i in 0..3 {
+                for j in 0..3 {
+                    let expected = if i == j { 1.0 } else { 0.0 };
+                    assert_relative_eq!(product[(i, j)], expected, epsilon = 1e-14);
+                }
+            }
+            assert_relative_eq!(c.determinant(), 1.0, epsilon = 1e-14);
+        }
+    }
+
+    #[test]
+    fn test_mt_is_transpose_of_m() {
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let t = ts.tt_jd(jd, None);
+            let m = t.m_matrix();
+            let mt = t.mt_matrix();
+            for i in 0..3 {
+                for j in 0..3 {
+                    assert_relative_eq!(mt[(i, j)], m[(j, i)], epsilon = 1e-15);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ct_is_transpose_of_c() {
+        let ts = Timescale::default();
+
+        for &jd in &TEST_JDS {
+            let t = ts.tt_jd(jd, None);
+            let c = t.c_matrix();
+            let ct = t.ct_matrix();
+            for i in 0..3 {
+                for j in 0..3 {
+                    assert_relative_eq!(ct[(i, j)], c[(j, i)], epsilon = 1e-15);
+                }
+            }
+        }
     }
 }

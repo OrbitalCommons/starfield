@@ -1,13 +1,14 @@
 //! Nutation computations based on the IAU 2000A model
 //!
 //! Implements nutation in longitude (delta-psi) and obliquity (delta-epsilon),
-//! mean obliquity of the ecliptic, and the complementary terms of the equation
-//! of equinoxes.
+//! mean obliquity of the ecliptic, the nutation rotation matrix, and the
+//! complementary terms of the equation of equinoxes.
 //!
 //! Uses the top 77 lunisolar terms of the IAU 2000A model, which captures
 //! 99.97% of the lunisolar nutation in longitude.
 
 use crate::constants::{ASEC2RAD, J2000, TAU};
+use nalgebra::Matrix3;
 
 /// Conversion factor from 0.1 microarcsecond to radians
 const TENTH_USEC_2_RAD: f64 = ASEC2RAD / 1e7;
@@ -182,7 +183,6 @@ pub fn iau2000a_nutation(tt_jd: f64) -> (f64, f64) {
     let mut d_eps = 0.0;
 
     for i in 0..N_NUTATION_TERMS {
-        // Compute the argument for this term
         let mut arg = 0.0;
         for j in 0..5 {
             arg += NALS[i][j] as f64 * fa[j];
@@ -191,14 +191,10 @@ pub fn iau2000a_nutation(tt_jd: f64) -> (f64, f64) {
         let sin_arg = arg.sin();
         let cos_arg = arg.cos();
 
-        // Longitude nutation: S_i * sin(arg) + C_i * cos(arg), with time-dependent S_i
         d_psi += (LSC[i][0] + LSC[i][1] * t) * sin_arg + LSC[i][2] * cos_arg;
-
-        // Obliquity nutation: C_i * cos(arg) + S_i * sin(arg), with time-dependent C_i
         d_eps += (LOC[i][0] + LOC[i][1] * t) * cos_arg + LOC[i][2] * sin_arg;
     }
 
-    // Convert from 0.1 microarcseconds to radians
     (d_psi * TENTH_USEC_2_RAD, d_eps * TENTH_USEC_2_RAD)
 }
 
@@ -211,13 +207,39 @@ pub fn iau2000a_nutation(tt_jd: f64) -> (f64, f64) {
 pub fn mean_obliquity(jd_tdb: f64) -> f64 {
     let t = (jd_tdb - J2000) / 36525.0;
 
-    // Result in arcseconds
     let epsilon = ((((-0.0000000434 * t - 0.000000576) * t + 0.00200340) * t - 0.0001831) * t
         - 46.836769)
         * t
         + 84381.406;
 
     epsilon * ASEC2RAD
+}
+
+/// Build the nutation rotation matrix
+///
+/// Matches Skyfield's construction using mean obliquity, true obliquity,
+/// and nutation in longitude (d_psi), all as positive angles.
+///
+/// # Arguments
+/// * `mean_obliquity_rad` - mean obliquity of ecliptic in radians
+/// * `d_psi` - nutation in longitude in radians
+/// * `d_eps` - nutation in obliquity in radians
+pub fn build_nutation_matrix(mean_obliquity_rad: f64, d_psi: f64, d_eps: f64) -> Matrix3<f64> {
+    let eps_mean = mean_obliquity_rad;
+    let eps_true = eps_mean + d_eps;
+
+    let (sobm, cobm) = eps_mean.sin_cos();
+    let (sobt, cobt) = eps_true.sin_cos();
+    let (spsi, cpsi) = d_psi.sin_cos();
+
+    #[rustfmt::skip]
+    let n = Matrix3::new(
+        cpsi,          -spsi * cobm,                      -spsi * sobm,
+        spsi * cobt,    cpsi * cobm * cobt + sobm * sobt,  cpsi * sobm * cobt - cobm * sobt,
+        spsi * sobt,    cpsi * cobm * sobt - sobm * cobt,  cpsi * sobm * sobt + cobm * cobt,
+    );
+
+    n
 }
 
 /// Number of complementary terms for equation of equinoxes
@@ -304,33 +326,31 @@ pub fn equation_of_the_equinoxes_complementary_terms(tt_jd: f64) -> f64 {
     // Compute the 14 fundamental arguments
     let mut fa = [0.0f64; 14];
 
-    // Moon and Sun arguments (Delaunay variables) — same formulas as
-    // in the complementary terms function of Skyfield, with the large
-    // revolution counts handled separately
+    // Moon and Sun arguments (Delaunay variables)
     fa[0] = (485868.249036
         + (715923.2178 + (31.8792 + (0.051635 + (-0.00024470) * t) * t) * t) * t)
         * ASEC2RAD
-        + (1325.0 * t % 1.0) * TAU;
+        + (1325.0 * t).rem_euclid(1.0) * TAU;
 
     fa[1] = (1287104.793048
         + (1292581.0481 + (-0.5532 + (0.000136 + (-0.00001149) * t) * t) * t) * t)
         * ASEC2RAD
-        + (99.0 * t % 1.0) * TAU;
+        + (99.0 * t).rem_euclid(1.0) * TAU;
 
     fa[2] = (335779.526232
         + (295262.8478 + (-12.7512 + (-0.001037 + (0.00000417) * t) * t) * t) * t)
         * ASEC2RAD
-        + (1342.0 * t % 1.0) * TAU;
+        + (1342.0 * t).rem_euclid(1.0) * TAU;
 
     fa[3] = (1072260.703692
         + (1105601.2090 + (-6.3706 + (0.006593 + (-0.00003169) * t) * t) * t) * t)
         * ASEC2RAD
-        + (1236.0 * t % 1.0) * TAU;
+        + (1236.0 * t).rem_euclid(1.0) * TAU;
 
     fa[4] = (450160.398036
         + (-482890.5431 + (7.4722 + (0.007702 + (-0.00005939) * t) * t) * t) * t)
         * ASEC2RAD
-        + (-5.0 * t % 1.0) * TAU;
+        + (-5.0 * t).rem_euclid(1.0) * TAU;
 
     // Planetary longitudes (Mercury through Neptune)
     fa[5] = 4.402608842 + 2608.7903141574 * t;
@@ -378,7 +398,6 @@ mod tests {
     #[test]
     fn test_fundamental_arguments_at_j2000() {
         let fa = fundamental_arguments(0.0);
-        // At t=0, the arguments should equal the constant terms * ASEC2RAD
         assert_relative_eq!(fa[0], FA_COEFFS[0][0] * ASEC2RAD, epsilon = 1e-10);
         assert_relative_eq!(fa[4], FA_COEFFS[4][0] * ASEC2RAD, epsilon = 1e-10);
     }
@@ -386,11 +405,8 @@ mod tests {
     #[test]
     fn test_nutation_at_j2000() {
         let (d_psi, d_eps) = iau2000a_nutation(J2000);
-        // At J2000, nutation should be small (order of arcseconds)
-        // d_psi should be around -17 arcseconds (dominant Omega term)
         let d_psi_asec = d_psi / ASEC2RAD;
         assert!(d_psi_asec.abs() < 20.0, "d_psi = {d_psi_asec} arcseconds");
-        // d_eps should be around 9 arcseconds
         let d_eps_asec = d_eps / ASEC2RAD;
         assert!(d_eps_asec.abs() < 15.0, "d_eps = {d_eps_asec} arcseconds");
     }
@@ -398,15 +414,35 @@ mod tests {
     #[test]
     fn test_mean_obliquity_at_j2000() {
         let eps = mean_obliquity(J2000);
-        // Mean obliquity at J2000 should be about 84381.406 arcseconds ≈ 23.4393°
         let eps_deg = eps.to_degrees();
         assert_relative_eq!(eps_deg, 23.4393, epsilon = 0.001);
     }
 
     #[test]
+    fn test_nutation_matrix_orthogonality() {
+        let eps = mean_obliquity(J2000);
+        let (d_psi, d_eps) = iau2000a_nutation(J2000);
+        let n = build_nutation_matrix(eps, d_psi, d_eps);
+        let product = n.transpose() * n;
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert_relative_eq!(product[(i, j)], expected, epsilon = 1e-14);
+            }
+        }
+    }
+
+    #[test]
+    fn test_nutation_matrix_determinant() {
+        let eps = mean_obliquity(J2000);
+        let (d_psi, d_eps) = iau2000a_nutation(J2000);
+        let n = build_nutation_matrix(eps, d_psi, d_eps);
+        assert_relative_eq!(n.determinant(), 1.0, epsilon = 1e-14);
+    }
+
+    #[test]
     fn test_complementary_terms_small() {
         let c = equation_of_the_equinoxes_complementary_terms(J2000);
-        // Complementary terms should be very small (order of microarcseconds)
         let c_asec = c / ASEC2RAD;
         assert!(
             c_asec.abs() < 0.01,
