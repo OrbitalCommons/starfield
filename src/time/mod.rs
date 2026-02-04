@@ -4,7 +4,7 @@
 //! conversions between them, and computing with calendar dates. It is inspired by
 //! the Python Skyfield library's time handling.
 
-use crate::constants::{DAY_S, GREGORIAN_START, J2000, TT_MINUS_TAI, TT_MINUS_TAI_S};
+use crate::constants::{DAY_S, GREGORIAN_START, J2000, TAU, TT_MINUS_TAI, TT_MINUS_TAI_S};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 // Import constants from std
 use std::fmt;
@@ -1013,6 +1013,32 @@ impl Time {
             // Simplified fallback
             (utc_calendar.year - 1972) as f64 / 3.0 + 10.0
         }
+    }
+
+    /// Get Greenwich Mean Sidereal Time (GMST) in hours
+    ///
+    /// Computed from the Earth Rotation Angle (using UT1) plus
+    /// precession-in-RA terms (using TDB), per USNO Circular 179.
+    pub fn gmst(&self) -> f64 {
+        let ut1_jd = self.ut1();
+        let ut1_whole = ut1_jd.floor();
+        let ut1_frac = ut1_jd - ut1_whole;
+        let tdb_centuries = (self.tdb() - J2000) / 36525.0;
+        crate::earthlib::sidereal_time(ut1_whole, ut1_frac, tdb_centuries)
+    }
+
+    /// Get Greenwich Apparent Sidereal Time (GAST) in hours
+    ///
+    /// GAST = GMST + equation of equinoxes.
+    /// The equation of equinoxes accounts for nutation effects.
+    pub fn gast(&self) -> f64 {
+        let tt = self.tt();
+        let (d_psi, _d_eps) = crate::nutationlib::iau2000a_nutation(tt);
+        let mean_obliq = crate::nutationlib::mean_obliquity(self.tdb());
+        let c_terms = crate::nutationlib::equation_of_the_equinoxes_complementary_terms(tt);
+        let eq_eq = d_psi * mean_obliq.cos() + c_terms;
+        // Convert eq_eq from radians to hours: hours = radians / (2π) * 24
+        (self.gmst() + eq_eq / TAU * 24.0).rem_euclid(24.0)
     }
 
     /// Get the TT as seconds since J2000.0
