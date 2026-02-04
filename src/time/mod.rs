@@ -6,7 +6,9 @@
 
 use crate::constants::{DAY_S, GREGORIAN_START, J2000, TAU, TT_MINUS_TAI, TT_MINUS_TAI_S};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
+use nalgebra::Matrix3;
 // Import constants from std
+use std::f64::consts::PI;
 use std::fmt;
 use std::ops::{Add, Sub};
 use thiserror::Error;
@@ -1037,8 +1039,63 @@ impl Time {
         let mean_obliq = crate::nutationlib::mean_obliquity(self.tdb());
         let c_terms = crate::nutationlib::equation_of_the_equinoxes_complementary_terms(tt);
         let eq_eq = d_psi * mean_obliq.cos() + c_terms;
-        // Convert eq_eq from radians to hours: hours = radians / (2π) * 24
         (self.gmst() + eq_eq / TAU * 24.0).rem_euclid(24.0)
+    }
+
+    /// Get the precession-nutation matrix M (ICRS → true equator and equinox of date)
+    ///
+    /// M = N × P × B, where:
+    /// - B = ICRS-to-J2000 frame bias
+    /// - P = precession matrix (from TDB)
+    /// - N = nutation matrix (from TT/TDB)
+    pub fn m_matrix(&self) -> Matrix3<f64> {
+        let b = *crate::framelib::ICRS_TO_J2000;
+        let p = crate::precessionlib::compute_precession(self.tdb());
+
+        let mean_obliq = crate::nutationlib::mean_obliquity(self.tdb());
+        let (d_psi, d_eps) = crate::nutationlib::iau2000a_nutation(self.tt());
+        let n = crate::nutationlib::build_nutation_matrix(mean_obliq, d_psi, d_eps);
+
+        n * p * b
+    }
+
+    /// Get the transpose of M (true equator and equinox of date → ICRS)
+    pub fn mt_matrix(&self) -> Matrix3<f64> {
+        self.m_matrix().transpose()
+    }
+
+    /// Get the ICRS → ITRS rotation matrix C
+    ///
+    /// C = R_z(equation_of_origins) × M
+    ///
+    /// Where equation_of_origins = ERA - GAST, which rotates from the
+    /// true equinox of date to the Celestial Intermediate Origin (CIO),
+    /// then applies Earth rotation.
+    pub fn c_matrix(&self) -> Matrix3<f64> {
+        let ut1_jd = self.ut1();
+        let ut1_whole = ut1_jd.floor();
+        let ut1_frac = ut1_jd - ut1_whole;
+        let era = crate::earthlib::earth_rotation_angle(ut1_whole, ut1_frac);
+
+        // Equation of Origins in cycles
+        let eq_origins = era - self.gast() / 24.0;
+        let angle = 2.0 * PI * eq_origins;
+
+        // R_z(angle)
+        let (s, c) = angle.sin_cos();
+        #[rustfmt::skip]
+        let r = Matrix3::new(
+            c, -s, 0.0,
+            s,  c, 0.0,
+            0.0, 0.0, 1.0,
+        );
+
+        r * self.m_matrix()
+    }
+
+    /// Get the transpose of C (ITRS → ICRS)
+    pub fn ct_matrix(&self) -> Matrix3<f64> {
+        self.c_matrix().transpose()
     }
 
     /// Get the TT as seconds since J2000.0

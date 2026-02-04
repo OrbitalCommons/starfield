@@ -51,13 +51,11 @@ mod tests {
     #[test]
     fn test_era_at_j2000() {
         let era = earth_rotation_angle(J2000, 0.0);
-        // ERA at J2000 should be approximately 0.7790572732640
         assert_relative_eq!(era, 0.7790572732640, epsilon = 1e-10);
     }
 
     #[test]
     fn test_era_range() {
-        // ERA should always be between 0 and 1
         for offset in &[-1000.0, -100.0, 0.0, 100.0, 1000.0] {
             let era = earth_rotation_angle(J2000 + offset, 0.0);
             assert!(
@@ -69,14 +67,12 @@ mod tests {
 
     #[test]
     fn test_gmst_at_j2000() {
-        // At J2000, GMST should be approximately 18.697 hours
         let gmst = sidereal_time(J2000, 0.0, 0.0);
         assert_relative_eq!(gmst, 18.697, epsilon = 0.01);
     }
 
     #[test]
     fn test_gmst_range() {
-        // GMST should always be between 0 and 24
         for offset in &[-1000.0, -100.0, 0.0, 100.0, 1000.0] {
             let t_centuries = offset / 36525.0;
             let gmst = sidereal_time(J2000 + offset, 0.0, t_centuries);
@@ -89,10 +85,8 @@ mod tests {
 
     #[test]
     fn test_gmst_increases_with_time() {
-        // Over a short period, GMST should increase
         let gmst1 = sidereal_time(J2000, 0.0, 0.0);
         let gmst2 = sidereal_time(J2000, 0.01, 0.01 / 36525.0);
-        // 0.01 day should add about 0.01 * 24.06 ≈ 0.24 hours of sidereal time
         let diff = (gmst2 - gmst1 + 24.0) % 24.0;
         assert!(diff > 0.2 && diff < 0.3, "GMST increase = {diff}");
     }
