@@ -87,7 +87,7 @@ fn median(data: &[f64]) -> f64 {
     sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
     let len = sorted_data.len();
-    if len % 2 == 0 {
+    if len.is_multiple_of(2) {
         (sorted_data[len / 2 - 1] + sorted_data[len / 2]) / 2.0
     } else {
         sorted_data[len / 2]

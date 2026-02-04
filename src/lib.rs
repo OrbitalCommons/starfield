@@ -17,6 +17,7 @@ pub mod earthlib;
 pub mod errors;
 pub mod framelib;
 pub mod image;
+pub mod jplephem;
 pub mod nutationlib;
 pub mod planetlib;
 pub mod positions;
@@ -47,6 +48,9 @@ pub enum StarfieldError {
 
     #[error("Object not found: {0}")]
     ObjectNotFound(String),
+
+    #[error("Ephemeris error: {0}")]
+    EphemerisError(#[from] jplephem::JplephemError),
 }
 
 /// Result type for starfield operations
@@ -130,10 +134,17 @@ impl Loader {
         catalogs::GaiaCatalog::create_synthetic()
     }
 
-    /// Load planetary ephemeris
-    pub fn load_ephemeris(&self) -> Result<planetlib::Ephemeris> {
-        // This is a placeholder until we implement proper ephemeris calculations
-        Ok(planetlib::Ephemeris::new())
+    /// Load a SPICE SPK/BSP ephemeris file
+    ///
+    /// Returns a SpiceKernel that can compute planetary positions.
+    pub fn load_spk<P: AsRef<Path>>(&self, path: P) -> Result<jplephem::SpiceKernel> {
+        Ok(jplephem::SpiceKernel::open(path)?)
+    }
+
+    /// Load planetary ephemeris from a BSP file
+    pub fn load_ephemeris<P: AsRef<Path>>(&self, path: P) -> Result<planetlib::Ephemeris> {
+        let kernel = jplephem::SpiceKernel::open(path)?;
+        Ok(planetlib::Ephemeris::from_kernel(kernel))
     }
 
     /// Load a timescale for time conversions

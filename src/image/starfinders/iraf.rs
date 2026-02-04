@@ -279,15 +279,15 @@ impl IRAFStarFinder {
     /// # Arguments
     ///
     /// * `data` - Input 2D image array containing astronomical data. Should be background-
-    ///            subtracted or have uniform background for best results. Units should be
-    ///            consistent (e.g., ADU, electrons, flux density).
+    ///   subtracted or have uniform background for best results. Units should be
+    ///   consistent (e.g., ADU, electrons, flux density).
     ///
     /// * `mask` - Optional boolean mask array with same dimensions as data. Pixels where
-    ///            mask[y,x] = true are excluded from analysis. Use to mask:
-    ///            - Bad pixels, cosmic rays, detector defects
-    ///            - Saturated regions, bleeding trails
-    ///            - Bright extended objects (galaxies, nebulae)
-    ///            - Image boundaries or low-coverage regions
+    ///   mask[y,x] = true are excluded from analysis. Use to mask:
+    ///   - Bad pixels, cosmic rays, detector defects
+    ///   - Saturated regions, bleeding trails
+    ///   - Bright extended objects (galaxies, nebulae)
+    ///   - Image boundaries or low-coverage regions
     ///
     /// # Returns
     ///
@@ -401,9 +401,9 @@ impl IRAFStarFinder {
     /// # Arguments
     ///
     /// * `convolved` - The image after convolution with the detection kernel. This
-    ///                 should have enhanced point sources and suppressed noise.
+    ///   should have enhanced point sources and suppressed noise.
     /// * `mask` - Optional mask to exclude regions from peak detection. Useful for
-    ///            masking saturated stars, cosmic rays, or bad detector regions.
+    ///   masking saturated stars, cosmic rays, or bad detector regions.
     ///
     /// # Returns
     ///
@@ -689,7 +689,7 @@ impl IRAFStarFinder {
     /// # Arguments
     ///
     /// * `data_cutout` - Small 2D array centered on the source, typically sized
-    ///                   to match the detection kernel (e.g., 15×15 to 51×51 pixels)
+    ///   to match the detection kernel (e.g., 15×15 to 51×51 pixels)
     ///
     /// # Returns
     ///
