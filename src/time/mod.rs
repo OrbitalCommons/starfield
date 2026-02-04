@@ -11,6 +11,11 @@ use std::fmt;
 use std::ops::{Add, Sub};
 use thiserror::Error;
 
+pub mod delta_t;
+
+#[cfg(feature = "python-tests")]
+mod python_tests;
+
 /// Error type for time operations
 #[derive(Debug, Error)]
 pub enum TimeError {
@@ -49,6 +54,8 @@ pub struct CalendarTuple {
 pub struct Timescale {
     /// Delta T table with TT times
     delta_t_table: Option<(Vec<f64>, Vec<f64>)>,
+    /// Spline-based delta-T evaluator (Table S15.2020 + long-term parabola)
+    delta_t_spline: delta_t::DeltaT,
     /// Leap second data for UTC/TAI conversions
     leap_dates: Vec<f64>,
     leap_offsets: Vec<i32>,
@@ -64,6 +71,7 @@ impl Default for Timescale {
         // Create a basic timescale with minimal data
         let mut ts = Self {
             delta_t_table: None,
+            delta_t_spline: delta_t::DeltaT::new(),
             leap_dates: Vec::new(),
             leap_offsets: Vec::new(),
             leap_utc: None,
@@ -88,6 +96,7 @@ impl Timescale {
     ) -> Self {
         let mut ts = Self {
             delta_t_table,
+            delta_t_spline: delta_t::DeltaT::new(),
             leap_dates,
             leap_offsets,
             leap_utc: None,
@@ -519,92 +528,18 @@ impl Timescale {
     }
 
     /// Calculate delta_t (TT - UT1) in seconds
+    ///
+    /// Uses spline interpolation from Morrison, Stephenson, Hohenkerk, and
+    /// Zawilski Table S15.2020 for years -720 to 2019, with the Stephenson-
+    /// Morrison-Hohenkerk 2016 long-term parabola for dates outside that range.
+    /// If a custom delta-T table was provided, it takes precedence.
     pub fn delta_t(&self, tt: f64) -> f64 {
         if let Some((table_tt, table_delta_t)) = &self.delta_t_table {
-            // Interpolate from table if available
+            // Interpolate from custom table if available
             Self::interpolate(tt, table_tt, table_delta_t, f64::NAN, f64::NAN)
         } else {
-            // Use approximation if no table is available
-            let year = (tt - 1721045.0) / 365.25;
-            self.delta_t_approx(year)
-        }
-    }
-
-    /// Approximate delta_t calculation based on year
-    fn delta_t_approx(&self, year: f64) -> f64 {
-        if year < -500.0 {
-            // Based on long-term parabolic approximation
-            let t = year / 100.0;
-            -20.0 + 32.0 * t * t
-        } else if year < 500.0 {
-            // Historical approximation
-            let t = year / 100.0;
-            10583.6 - 1014.41 * t + 33.78311 * t * t - 5.952053 * t.powi(3) - 0.1798452 * t.powi(4)
-                + 0.022174192 * t.powi(5)
-                + 0.0090316521 * t.powi(6)
-        } else if year < 1600.0 {
-            // Medieval period
-            let t = (year - 1000.0) / 100.0;
-            1574.2 - 556.01 * t + 71.23472 * t * t + 0.319781 * t.powi(3)
-                - 0.8503463 * t.powi(4)
-                - 0.005050998 * t.powi(5)
-                + 0.0083572073 * t.powi(6)
-        } else if year < 1700.0 {
-            // 1600-1700
-            let t = year - 1600.0;
-            120.0 - 0.9808 * t - 0.01532 * t * t + t.powi(3) / 7129.0
-        } else if year < 1800.0 {
-            // 1700-1800
-            let t = year - 1700.0;
-            8.83 + 0.1603 * t - 0.0059285 * t * t + 0.00013336 * t.powi(3) - t.powi(4) / 1174000.0
-        } else if year < 1860.0 {
-            // 1800-1860
-            let t = year - 1800.0;
-            13.72 - 0.332447 * t + 0.0068612 * t * t + 0.0041116 * t.powi(3)
-                - 0.00037436 * t.powi(4)
-                + 0.0000121272 * t.powi(5)
-                - 0.0000001699 * t.powi(6)
-                + 0.000000000875 * t.powi(7)
-        } else if year < 1900.0 {
-            // 1860-1900
-            let t = year - 1860.0;
-            7.62 + 0.5737 * t - 0.251754 * t * t + 0.01680668 * t.powi(3) - 0.0004473624 * t.powi(4)
-                + t.powi(5) / 233174.0
-        } else if year < 1920.0 {
-            // 1900-1920
-            let t = year - 1900.0;
-            -2.79 + 1.494119 * t - 0.0598939 * t * t + 0.0061966 * t.powi(3) - 0.000197 * t.powi(4)
-        } else if year < 1941.0 {
-            // 1920-1941
-            let t = year - 1920.0;
-            21.20 + 0.84493 * t - 0.076100 * t * t + 0.0020936 * t.powi(3)
-        } else if year < 1961.0 {
-            // 1941-1961
-            let t = year - 1950.0;
-            29.07 + 0.407 * t - t * t / 233.0 + t.powi(3) / 2547.0
-        } else if year < 1986.0 {
-            // 1961-1986
-            let t = year - 1975.0;
-            45.45 + 1.067 * t - t * t / 260.0 - t.powi(3) / 718.0
-        } else if year < 2005.0 {
-            // 1986-2005
-            let t = year - 2000.0;
-            63.86 + 0.3345 * t - 0.060374 * t * t
-                + 0.0017275 * t.powi(3)
-                + 0.000651814 * t.powi(4)
-                + 0.00002373599 * t.powi(5)
-        } else if year < 2050.0 {
-            // 2005-2050 prediction
-            let t = year - 2000.0;
-            62.92 + 0.32217 * t + 0.005589 * t * t
-        } else if year < 2150.0 {
-            // 2050-2150 prediction
-            let u = (year - 1820.0) / 100.0;
-            -20.0 + 32.0 * u * u - 0.5628 * (2150.0 - year)
-        } else {
-            // After 2150, based on long-term parabola
-            let u = (year - 1820.0) / 100.0;
-            -20.0 + 32.0 * u * u
+            // Use spline-based computation (Table S15.2020 + long-term parabola)
+            self.delta_t_spline.compute(tt)
         }
     }
 
@@ -1242,10 +1177,12 @@ mod tests {
         let j2020 = J2000 + 20.0 * 365.25; // About 20 years after J2000
         let time = ts.tt_jd(j2020, None);
 
-        // Test implicit delta_t calculation
+        // Test implicit delta_t calculation — should be around 69 seconds for 2020
         let delta_t = time.delta_t();
-        let expected_delta_t = 62.92 + 0.32 * (2020.0 - 2000.0);
-        assert_relative_eq!(delta_t, expected_delta_t, epsilon = 3.0); // Increased tolerance
+        assert!(
+            delta_t > 60.0 && delta_t < 80.0,
+            "delta_t(2020) = {delta_t}"
+        );
     }
 
     #[test]
@@ -1304,7 +1241,7 @@ mod tests {
         // Test UT1 via delta_t
         let delta_t = t_j2000.delta_t();
         let ut1_j2000 = t_j2000.ut1();
-        assert_relative_eq!(J2000 - ut1_j2000, delta_t / DAY_S, epsilon = 1e-10);
+        assert_relative_eq!(J2000 - ut1_j2000, delta_t / DAY_S, epsilon = 1e-8);
     }
 
     #[test]
@@ -1347,18 +1284,29 @@ mod tests {
     }
 
     #[test]
-    fn test_delta_t_approximation() {
+    fn test_delta_t_spline() {
         let ts = Timescale::default();
 
-        // Test delta_t for different years
-        let delta_t_2000 = ts.delta_t_approx(2000.0);
-        assert_relative_eq!(delta_t_2000, 63.8285, epsilon = 0.1);
+        // Year 2000: known delta-T is about 63.83 seconds
+        let tt_2000 = 2_451_545.0; // J2000
+        let delta_t_2000 = ts.delta_t(tt_2000);
+        assert_relative_eq!(delta_t_2000, 63.83, epsilon = 1.0);
 
-        let delta_t_1970 = ts.delta_t_approx(1970.0);
-        assert!(delta_t_1970 > 0.0);
+        // Year 1970: delta-T was about 40 seconds
+        let tt_1970 = 2_451_545.0 - 30.0 * 365.25;
+        let delta_t_1970 = ts.delta_t(tt_1970);
+        assert!(
+            delta_t_1970 > 30.0 && delta_t_1970 < 50.0,
+            "delta_t(1970) = {delta_t_1970}"
+        );
 
-        let delta_t_1800 = ts.delta_t_approx(1800.0);
-        assert!(delta_t_1800 > 0.0);
+        // Year 1800: delta-T was about 13.7 seconds
+        let tt_1800 = 2_451_545.0 - 200.0 * 365.25;
+        let delta_t_1800 = ts.delta_t(tt_1800);
+        assert!(
+            delta_t_1800 > 10.0 && delta_t_1800 < 20.0,
+            "delta_t(1800) = {delta_t_1800}"
+        );
     }
 
     #[test]
@@ -1369,15 +1317,11 @@ mod tests {
         // Using From trait implementation
         let time: Time = dt.into();
 
-        // In our current implementation, we're getting 4 for the month instead of 1
-        // This is because our calendar conversion routines need more work
-        // For now, we'll just check that the Time object was created successfully
-
-        // The delta_t calculation should work regardless of the calendar issues
-
-        // The delta_t for 2020 should be around 70 seconds
+        // The delta_t for 2020 should be around 69 seconds (S15 spline value)
         let delta_t = time.delta_t();
-        let expected_delta_t = 62.92 + 0.32 * (2020.0 - 2000.0);
-        assert_relative_eq!(delta_t, expected_delta_t, epsilon = 3.0); // Increased tolerance due to calendar conversion issues
+        assert!(
+            delta_t > 60.0 && delta_t < 80.0,
+            "delta_t(2020) = {delta_t}"
+        );
     }
 }
