@@ -1,7 +1,7 @@
-//! Python comparison tests for delta-T spline interpolation
+//! Python comparison tests for delta-T and sidereal time
 //!
-//! Validates our Table S15.2020 spline implementation against
-//! Skyfield's delta-T computation across historical and modern epochs.
+//! Validates our Table S15.2020 spline, GMST, GAST, and equation of equinoxes
+//! against Python Skyfield across multiple epochs.
 
 #[cfg(test)]
 mod tests {

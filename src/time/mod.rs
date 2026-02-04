@@ -13,7 +13,6 @@ use thiserror::Error;
 
 pub mod delta_t;
 
-
 #[cfg(feature = "python-tests")]
 mod python_tests;
 
