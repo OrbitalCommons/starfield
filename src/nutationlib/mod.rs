@@ -217,10 +217,8 @@ pub fn mean_obliquity(jd_tdb: f64) -> f64 {
 
 /// Build the nutation rotation matrix
 ///
-/// N = R1(-eps_true) * R3(d_psi) * R1(eps_mean)
-///
-/// (Note: Skyfield constructs N = R1(eps_true) * R3(-d_psi) * R1(-eps_mean)
-/// which is the inverse order convention, matching the forward nutation direction.)
+/// Matches Skyfield's construction using mean obliquity, true obliquity,
+/// and nutation in longitude (d_psi), all as positive angles.
 ///
 /// # Arguments
 /// * `mean_obliquity_rad` - mean obliquity of ecliptic in radians
@@ -230,16 +228,15 @@ pub fn build_nutation_matrix(mean_obliquity_rad: f64, d_psi: f64, d_eps: f64) ->
     let eps_mean = mean_obliquity_rad;
     let eps_true = eps_mean + d_eps;
 
-    let (sp, cp) = (-d_psi).sin_cos();
-    let (se, ce) = (-eps_mean).sin_cos();
-    let (set, cet) = (eps_true).sin_cos();
+    let (sobm, cobm) = eps_mean.sin_cos();
+    let (sobt, cobt) = eps_true.sin_cos();
+    let (spsi, cpsi) = d_psi.sin_cos();
 
-    // N = R1(eps_true) * R3(-d_psi) * R1(-eps_mean)
     #[rustfmt::skip]
     let n = Matrix3::new(
-        cp,                     -sp * ce,                         -sp * se,
-        sp * cet,               cp * ce * cet + se * set,         cp * se * cet - ce * set,
-        sp * set,               cp * ce * set - se * cet,         cp * se * set + ce * cet,
+        cpsi,          -spsi * cobm,                      -spsi * sobm,
+        spsi * cobt,    cpsi * cobm * cobt + sobm * sobt,  cpsi * sobm * cobt - cobm * sobt,
+        spsi * sobt,    cpsi * cobm * sobt - sobm * cobt,  cpsi * sobm * sobt + cobm * cobt,
     );
 
     n
