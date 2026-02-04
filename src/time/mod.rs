@@ -4,9 +4,12 @@
 //! conversions between them, and computing with calendar dates. It is inspired by
 //! the Python Skyfield library's time handling.
 
+#[cfg(feature = "python-tests")]
+mod python_tests;
+
 use crate::constants::{DAY_S, GREGORIAN_START, J2000, TT_MINUS_TAI, TT_MINUS_TAI_S};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
-// Import constants from std
+use std::cell::Cell;
 use std::fmt;
 use std::ops::{Add, Sub};
 use thiserror::Error;
@@ -264,9 +267,9 @@ impl Timescale {
             whole: tai_jd,
             tt_fraction,
             tai_fraction: Some(tai_fraction),
-            ut1_fraction: None,
-            tdb_fraction: None,
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(None),
             shape: None,
         };
 
@@ -342,9 +345,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(fraction),
-            ut1_fraction: None,
-            tdb_fraction: None,
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(None),
             shape: None,
         }
     }
@@ -363,9 +366,9 @@ impl Timescale {
             whole,
             tt_fraction: frac + TT_MINUS_TAI,
             tai_fraction: Some(frac),
-            ut1_fraction: None,
-            tdb_fraction: None,
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(None),
             shape: None,
         }
     }
@@ -382,9 +385,9 @@ impl Timescale {
             whole,
             tt_fraction: fraction,
             tai_fraction: Some(fraction - TT_MINUS_TAI),
-            ut1_fraction: None,
-            tdb_fraction: None,
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(None),
             shape: None,
         }
     }
@@ -403,9 +406,9 @@ impl Timescale {
             whole,
             tt_fraction: frac,
             tai_fraction: Some(frac - TT_MINUS_TAI),
-            ut1_fraction: None,
-            tdb_fraction: None,
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(None),
             shape: None,
         }
     }
@@ -435,9 +438,9 @@ impl Timescale {
             whole,
             tt_fraction: tt_frac,
             tai_fraction: Some(tt_frac - TT_MINUS_TAI),
-            ut1_fraction: None,
-            tdb_fraction: Some(tdb_frac),
-            delta_t: None,
+            ut1_fraction: Cell::new(None),
+            tdb_fraction: Cell::new(Some(tdb_frac)),
+            delta_t: Cell::new(None),
             shape: None,
         }
     }
@@ -479,9 +482,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(tt_fraction - TT_MINUS_TAI),
-            ut1_fraction: Some(ut1_fraction),
-            tdb_fraction: None,
-            delta_t: Some(delta_t_better),
+            ut1_fraction: Cell::new(Some(ut1_fraction)),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(Some(delta_t_better)),
             shape: None,
         }
     }
@@ -511,9 +514,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(tt_fraction - TT_MINUS_TAI),
-            ut1_fraction: Some(ut1_fraction),
-            tdb_fraction: None,
-            delta_t: Some(delta_t_better),
+            ut1_fraction: Cell::new(Some(ut1_fraction)),
+            tdb_fraction: Cell::new(None),
+            delta_t: Cell::new(Some(delta_t_better)),
             shape: None,
         }
     }
@@ -803,9 +806,9 @@ impl Timescale {
                 whole,
                 tt_fraction: fraction,
                 tai_fraction: Some(fraction - TT_MINUS_TAI),
-                ut1_fraction: None,
-                tdb_fraction: None,
-                delta_t: None,
+                ut1_fraction: Cell::new(None),
+                tdb_fraction: Cell::new(None),
+                delta_t: Cell::new(None),
                 shape: None,
             });
         }
@@ -840,6 +843,9 @@ impl From<(i32, u32, u32)> for CalendarInput {
 }
 
 /// Represents astronomical time with high precision
+///
+/// Derived time scale values (TDB, UT1, delta-T) are lazily computed
+/// on first access and cached for subsequent calls.
 #[derive(Debug, Clone)]
 pub struct Time {
     /// Reference to the timescale used to create this time
@@ -850,12 +856,12 @@ pub struct Time {
     tt_fraction: f64,
     /// TAI fraction of day (if known)
     tai_fraction: Option<f64>,
-    /// UT1 fraction of day (if known)
-    ut1_fraction: Option<f64>,
-    /// TDB fraction of day (if known)
-    tdb_fraction: Option<f64>,
-    /// Delta-T in seconds (difference between UT1 and TT)
-    delta_t: Option<f64>,
+    /// UT1 fraction of day (cached on first access)
+    ut1_fraction: Cell<Option<f64>>,
+    /// TDB fraction of day (cached on first access)
+    tdb_fraction: Cell<Option<f64>>,
+    /// Delta-T in seconds (cached on first access)
+    delta_t: Cell<Option<f64>>,
     /// Shape for array operations (None for scalar)
     shape: Option<Vec<usize>>,
 }
@@ -1010,13 +1016,17 @@ impl Time {
     }
 
     /// Get the TDB (Barycentric Dynamical Time) as Julian date
+    ///
+    /// The TDB fraction is cached on first computation.
     pub fn tdb(&self) -> f64 {
-        if let Some(tdb_fraction) = self.tdb_fraction {
+        if let Some(tdb_fraction) = self.tdb_fraction.get() {
             self.whole + tdb_fraction
         } else {
-            // Approximate TDB based on TT
             let tt = self.tt();
-            tt + self.tdb_minus_tt(tt) / DAY_S
+            let tdb_correction = self.tdb_minus_tt(tt) / DAY_S;
+            let tdb_frac = self.tt_fraction + tdb_correction;
+            self.tdb_fraction.set(Some(tdb_frac));
+            self.whole + tdb_frac
         }
     }
 
@@ -1035,21 +1045,28 @@ impl Time {
     }
 
     /// Get the UT1 (Universal Time) as Julian date
+    ///
+    /// The UT1 fraction is cached on first computation.
     pub fn ut1(&self) -> f64 {
-        if let Some(ut1_fraction) = self.ut1_fraction {
+        if let Some(ut1_fraction) = self.ut1_fraction.get() {
             self.whole + ut1_fraction
         } else {
-            // Calculate based on delta_t
-            self.tt() - self.delta_t() / DAY_S
+            let ut1_frac = self.tt_fraction - self.delta_t() / DAY_S;
+            self.ut1_fraction.set(Some(ut1_frac));
+            self.whole + ut1_frac
         }
     }
 
     /// Get Delta-T in seconds (TT - UT1)
+    ///
+    /// Cached on first computation.
     pub fn delta_t(&self) -> f64 {
-        if let Some(delta_t) = self.delta_t {
+        if let Some(delta_t) = self.delta_t.get() {
             delta_t
         } else {
-            self.ts.delta_t(self.tt())
+            let dt = self.ts.delta_t(self.tt());
+            self.delta_t.set(Some(dt));
+            dt
         }
     }
 
@@ -1144,9 +1161,9 @@ impl Add<f64> for Time {
             whole: self.whole + whole_days,
             tt_fraction: self.tt_fraction + fraction,
             tai_fraction: self.tai_fraction.map(|f| f + fraction),
-            ut1_fraction: self.ut1_fraction.map(|f| f + fraction),
-            tdb_fraction: self.tdb_fraction.map(|f| f + fraction),
-            delta_t: None, // Recalculate when needed
+            ut1_fraction: Cell::new(self.ut1_fraction.get().map(|f| f + fraction)),
+            tdb_fraction: Cell::new(self.tdb_fraction.get().map(|f| f + fraction)),
+            delta_t: Cell::new(None), // Recalculate when needed
             shape: self.shape,
         }
     }
@@ -1176,9 +1193,9 @@ impl Sub<f64> for Time {
             whole: self.whole - whole_days,
             tt_fraction: self.tt_fraction - fraction,
             tai_fraction: self.tai_fraction.map(|f| f - fraction),
-            ut1_fraction: self.ut1_fraction.map(|f| f - fraction),
-            tdb_fraction: self.tdb_fraction.map(|f| f - fraction),
-            delta_t: None, // Recalculate when needed
+            ut1_fraction: Cell::new(self.ut1_fraction.get().map(|f| f - fraction)),
+            tdb_fraction: Cell::new(self.tdb_fraction.get().map(|f| f - fraction)),
+            delta_t: Cell::new(None), // Recalculate when needed
             shape: self.shape,
         }
     }
