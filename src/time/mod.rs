@@ -4,6 +4,9 @@
 //! conversions between them, and computing with calendar dates. It is inspired by
 //! the Python Skyfield library's time handling.
 
+#[cfg(feature = "python-tests")]
+mod python_tests;
+
 use crate::constants::{DAY_S, GREGORIAN_START, J2000, TT_MINUS_TAI, TT_MINUS_TAI_S};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 // Import constants from std
@@ -247,14 +250,28 @@ impl Timescale {
     }
 
     /// Create a time from a UTC date and time
+    ///
+    /// Accepts second=60.0 to represent a leap second. The extra second
+    /// is folded into the TAI representation and the `leap_second` flag
+    /// is set on the resulting Time.
     pub fn utc<T: Into<CalendarInput>>(&self, date: T) -> Time {
         let input = date.into();
 
+        // Detect leap second (second >= 60.0)
+        let (adjusted_input, is_leap_second) = Self::detect_leap_second(input);
+
         // Calculate the Julian day number for this calendar date
-        let jd = self.calendar_to_jd(&input);
+        let jd = self.calendar_to_jd(&adjusted_input);
 
         // For UTC, we need to account for leap seconds
         let (tai_jd, tai_fraction) = self.utc_to_tai(jd);
+
+        // If this is a leap second, add 1 second to TAI
+        let tai_fraction = if is_leap_second {
+            tai_fraction + 1.0 / DAY_S
+        } else {
+            tai_fraction
+        };
 
         // Create the time object with TT as the internal representation
         let tt_fraction = tai_fraction + TT_MINUS_TAI;
@@ -268,12 +285,46 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: None,
             shape: None,
+            leap_second: is_leap_second,
         };
 
         // Store the original UTC values for possible later reference
-        time.set_utc_tuple(input);
+        time.set_utc_tuple(adjusted_input);
 
         time
+    }
+
+    /// Detect and handle second=60 leap second input
+    ///
+    /// Returns the adjusted input (second clamped to 59) and a flag
+    /// indicating whether a leap second was detected.
+    fn detect_leap_second(input: CalendarInput) -> (CalendarInput, bool) {
+        match &input {
+            CalendarInput::Tuple(y, m, d, h, mi, s) => {
+                if *s >= 60.0 {
+                    (CalendarInput::Tuple(*y, *m, *d, *h, *mi, s - 1.0), true)
+                } else {
+                    (input, false)
+                }
+            }
+            CalendarInput::CalendarTuple(cal) => {
+                if cal.second >= 60.0 {
+                    (
+                        CalendarInput::CalendarTuple(CalendarTuple {
+                            year: cal.year,
+                            month: cal.month,
+                            day: cal.day,
+                            hour: cal.hour,
+                            minute: cal.minute,
+                            second: cal.second - 1.0,
+                        }),
+                        true,
+                    )
+                } else {
+                    (input, false)
+                }
+            }
+        }
     }
 
     /// Convert a UTC Julian date to TAI
@@ -346,6 +397,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: None,
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -367,6 +419,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: None,
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -386,6 +439,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: None,
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -407,6 +461,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: None,
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -439,6 +494,7 @@ impl Timescale {
             tdb_fraction: Some(tdb_frac),
             delta_t: None,
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -483,6 +539,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: Some(delta_t_better),
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -515,6 +572,7 @@ impl Timescale {
             tdb_fraction: None,
             delta_t: Some(delta_t_better),
             shape: None,
+            leap_second: false,
         }
     }
 
@@ -807,6 +865,7 @@ impl Timescale {
                 tdb_fraction: None,
                 delta_t: None,
                 shape: None,
+                leap_second: false,
             });
         }
 
@@ -858,6 +917,8 @@ pub struct Time {
     delta_t: Option<f64>,
     /// Shape for array operations (None for scalar)
     shape: Option<Vec<usize>>,
+    /// Whether this time falls during a UTC leap second (second=60)
+    leap_second: bool,
 }
 
 impl Time {
@@ -889,6 +950,24 @@ impl Time {
             .ok_or_else(|| TimeError::CalendarError("Invalid calendar date".into()))?;
 
         Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+    }
+
+    /// Get the UTC datetime and leap second flag
+    ///
+    /// Returns `(CalendarTuple, bool)` where the bool is `true` if this
+    /// time falls during the 60th second of a leap second minute.
+    /// When `true`, the calendar tuple's second field will show 60.x.
+    pub fn utc_datetime_and_leap_second(&self) -> Result<(CalendarTuple, bool)> {
+        let mut cal = self.utc_calendar()?;
+        if self.leap_second {
+            cal.second += 1.0; // Restore second=60
+        }
+        Ok((cal, self.leap_second))
+    }
+
+    /// Whether this time represents a UTC leap second (second=60)
+    pub fn is_leap_second(&self) -> bool {
+        self.leap_second
     }
 
     /// Get the UTC calendar tuple
@@ -1148,6 +1227,7 @@ impl Add<f64> for Time {
             tdb_fraction: self.tdb_fraction.map(|f| f + fraction),
             delta_t: None, // Recalculate when needed
             shape: self.shape,
+            leap_second: false,
         }
     }
 }
@@ -1180,6 +1260,7 @@ impl Sub<f64> for Time {
             tdb_fraction: self.tdb_fraction.map(|f| f - fraction),
             delta_t: None, // Recalculate when needed
             shape: self.shape,
+            leap_second: false,
         }
     }
 }
@@ -1379,5 +1460,38 @@ mod tests {
         let delta_t = time.delta_t();
         let expected_delta_t = 62.92 + 0.32 * (2020.0 - 2000.0);
         assert_relative_eq!(delta_t, expected_delta_t, epsilon = 3.0); // Increased tolerance due to calendar conversion issues
+    }
+
+    #[test]
+    fn test_leap_second_detection() {
+        let ts = Timescale::default();
+
+        // Normal time — no leap second
+        let t_normal = ts.utc((2016, 12, 31, 23, 59, 59.0));
+        assert!(!t_normal.is_leap_second());
+
+        // Leap second — second=60
+        let t_leap = ts.utc((2016, 12, 31, 23, 59, 60.0));
+        assert!(t_leap.is_leap_second());
+
+        // The leap second time should be exactly 1 second after second=59
+        let diff_days = t_leap.tt() - t_normal.tt();
+        let diff_seconds = diff_days * DAY_S;
+        assert_relative_eq!(diff_seconds, 1.0, epsilon = 0.01);
+    }
+
+    #[test]
+    fn test_utc_datetime_and_leap_second() {
+        let ts = Timescale::default();
+
+        // Normal time
+        let t = ts.utc((2020, 6, 15, 12, 30, 45.0));
+        let (_cal, is_leap) = t.utc_datetime_and_leap_second().unwrap();
+        assert!(!is_leap);
+
+        // Leap second — the flag should be set
+        let t_leap = ts.utc((2016, 12, 31, 23, 59, 60.0));
+        let (_cal, is_leap) = t_leap.utc_datetime_and_leap_second().unwrap();
+        assert!(is_leap);
     }
 }
