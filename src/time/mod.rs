@@ -410,6 +410,38 @@ impl Timescale {
         }
     }
 
+    /// Create a time from a TDB Julian date
+    ///
+    /// For most purposes TDB ≈ TT (within ~1.7ms). This method stores
+    /// the TDB fraction directly and approximates TT from it.
+    pub fn tdb_jd(&self, jd: f64) -> Time {
+        let whole = jd.floor();
+        let tdb_frac = jd - whole;
+        // Approximate TT fraction: TT ≈ TDB - (TDB-TT)
+        // The correction is tiny (<2ms / 86400s ≈ 2e-8 days)
+        let t = (jd - J2000) / 36525.0;
+        let tdb_minus_tt_days = (0.001657 * f64::sin(628.3076 * t + 6.2401)
+            + 0.000022 * f64::sin(575.3385 * t + 4.2970)
+            + 0.000014 * f64::sin(1256.6152 * t + 6.1969)
+            + 0.000005 * f64::sin(606.9777 * t + 4.0212)
+            + 0.000005 * f64::sin(52.9691 * t + 0.4444)
+            + 0.000002 * f64::sin(21.3299 * t + 5.5431)
+            + 0.000010 * t * f64::sin(628.3076 * t + 4.2490))
+            / DAY_S;
+        let tt_frac = tdb_frac - tdb_minus_tt_days;
+
+        Time {
+            ts: self.clone(),
+            whole,
+            tt_fraction: tt_frac,
+            tai_fraction: Some(tt_frac - TT_MINUS_TAI),
+            ut1_fraction: None,
+            tdb_fraction: Some(tdb_frac),
+            delta_t: None,
+            shape: None,
+        }
+    }
+
     /// Create a time from a TT Julian year
     pub fn j(&self, year: f64) -> Time {
         let tt = year * 365.25 + 1_721_045.0;
