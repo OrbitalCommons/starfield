@@ -86,6 +86,27 @@ impl Position {
         }
     }
 
+    /// Create an Astrometric position from an observer and relative vectors.
+    ///
+    /// Used by `Star::observe_from()` and other non-ephemeris observations.
+    pub fn astrometric(
+        position: Vector3<f64>,
+        velocity: Vector3<f64>,
+        observer: &Position,
+        target_id: i32,
+        light_time: f64,
+    ) -> Self {
+        Position {
+            position,
+            velocity,
+            kind: PositionKind::Astrometric,
+            center: observer.target,
+            target: target_id,
+            light_time,
+            observer_barycentric: Some(Box::new(observer.clone())),
+        }
+    }
+
     /// Compute the astrometric position of another body as seen from this position.
     ///
     /// Performs light-time iteration: finds where the target *was* when
