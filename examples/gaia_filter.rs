@@ -296,7 +296,10 @@ impl ThreadSafeStarCollector {
     }
 
     /// Add a thread handle to track
-    fn add_thread_handle(&mut self, handle: JoinHandle<Result<u64, Box<dyn std::error::Error + Send + 'static>>>) {
+    fn add_thread_handle(
+        &mut self,
+        handle: JoinHandle<Result<u64, Box<dyn std::error::Error + Send + 'static>>>,
+    ) {
         self.thread_handles.push(handle);
     }
 
@@ -311,10 +314,7 @@ impl ThreadSafeStarCollector {
         F: FnMut(&StarData),
     {
         // The inspect adapter applies a function to a reference of each item
-        InspectAdapter {
-            collector: self,
-            f,
-        }
+        InspectAdapter { collector: self, f }
     }
 
     /// Checks if any thread handles have completed and removes them
@@ -345,18 +345,16 @@ impl ThreadSafeStarCollector {
     /// Wait for threads to complete and join them
     fn join_all(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
         let mut final_count = 0;
-        
+
         // Join all threads and collect results
         while !self.thread_handles.is_empty() {
             // Take a thread handle from the vec and join it
             if let Some(handle) = self.thread_handles.pop() {
                 match handle.join() {
-                    Ok(result) => {
-                        match result {
-                            Ok(count) => final_count += count,
-                            Err(e) => return Err(e),
-                        }
-                    }
+                    Ok(result) => match result {
+                        Ok(count) => final_count += count,
+                        Err(e) => return Err(e),
+                    },
                     Err(e) => return Err(format!("Thread panicked: {:?}", e).into()),
                 }
             }
@@ -409,13 +407,13 @@ impl StarCollectorProducer {
     fn add_star(&self, star: StarData) {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(star);
-        
+
         // Update the star count
         {
             let mut count = self.star_count.lock().unwrap();
             *count += 1;
         }
-        
+
         // Notify a waiting consumer
         self.condvar.notify_one();
     }
@@ -440,7 +438,7 @@ impl Iterator for ThreadSafeStarCollector {
             // All threads are done and queue is empty, we're done iterating
             return None;
         }
-        
+
         // Poll thread handles to check for completion
         drop(queue); // Release the lock before polling
         drop(complete);
@@ -448,7 +446,7 @@ impl Iterator for ThreadSafeStarCollector {
 
         // Try again for data, this time with waiting if threads are still running
         let mut queue = self.queue.lock().unwrap();
-        
+
         // If queue is still empty, wait for more data or until all threads complete
         while queue.is_empty() {
             let complete = self.threads_complete.lock().unwrap();
@@ -456,16 +454,19 @@ impl Iterator for ThreadSafeStarCollector {
                 // All threads done and queue is empty
                 return None;
             }
-            
+
             // Wait for notification that more data is available
-            let (new_queue, _) = self.condvar.wait_timeout(queue, std::time::Duration::from_millis(100)).unwrap();
+            let (new_queue, _) = self
+                .condvar
+                .wait_timeout(queue, std::time::Duration::from_millis(100))
+                .unwrap();
             queue = new_queue;
-            
+
             // Check if we received data
             if !queue.is_empty() {
                 break;
             }
-            
+
             // No data yet, release locks and poll threads again
             drop(queue);
             drop(complete);
@@ -549,7 +550,7 @@ fn process_files_and_stream<P: AsRef<Path>>(
 
     // Create our thread-safe star collector
     let mut star_collector = ThreadSafeStarCollector::new();
-    
+
     // Create shared collection for file line counts
     let file_line_counts = Arc::new(Mutex::new(Vec::new()));
     let pending_files = Arc::new(Mutex::new(input_files));
@@ -560,7 +561,7 @@ fn process_files_and_stream<P: AsRef<Path>>(
         let pending_files_clone = Arc::clone(&pending_files);
         let total_progress_clone = total_progress.clone();
         let file_line_counts_clone = Arc::clone(&file_line_counts);
-        
+
         // Get a producer handle from the collector
         let producer = star_collector.get_producer();
 
@@ -570,75 +571,80 @@ fn process_files_and_stream<P: AsRef<Path>>(
         thread_bar.set_message(format!("Thread {}", thread_id + 1));
 
         // Spawn a new thread
-        let handle = thread::spawn(move || -> Result<u64, Box<dyn std::error::Error + Send + 'static>> {
-            let mut total_count = 0;
-            
-            loop {
-                // Get the next file to process
-                let next_file = {
-                    let mut files = pending_files_clone.lock().unwrap();
-                    if files.is_empty() {
-                        break; // No more files to process
-                    }
-                    files.pop().unwrap()
-                };
+        let handle = thread::spawn(
+            move || -> Result<u64, Box<dyn std::error::Error + Send + 'static>> {
+                let mut total_count = 0;
 
-                // Update the progress bar message
-                let file_name = next_file.file_name().unwrap_or_default().to_string_lossy();
-                thread_bar.set_message(format!("Thread {} - {}", thread_id + 1, file_name));
-
-                // Calculate estimated line count based on previously processed files
-                let estimated_lines = {
-                    let line_counts = file_line_counts_clone.lock().unwrap();
-                    if line_counts.is_empty() {
-                        1_000_000 // Default estimate if no files processed yet
-                    } else {
-                        let total: u64 = line_counts.iter().sum();
-                        let avg = total / line_counts.len() as u64;
-                        avg
-                    }
-                };
-
-                // Set the progress bar length to the estimated count
-                thread_bar.set_length(estimated_lines);
-                thread_bar.set_position(0);
-
-                // Process the file
-                match process_file(
-                    &next_file,
-                    magnitude_limit,
-                    Some(thread_bar.clone()),
-                    producer.clone(),
-                ) {
-                    Ok(processed_count) => {
-                        // Get the final position of the progress bar to estimate file size
-                        let processed_lines = thread_bar.position();
-
-                        // Store line count for future estimates
-                        {
-                            let mut line_counts = file_line_counts_clone.lock().unwrap();
-                            line_counts.push(processed_lines);
+                loop {
+                    // Get the next file to process
+                    let next_file = {
+                        let mut files = pending_files_clone.lock().unwrap();
+                        if files.is_empty() {
+                            break; // No more files to process
                         }
+                        files.pop().unwrap()
+                    };
 
-                        // Add to this thread's total count
-                        total_count += processed_count;
+                    // Update the progress bar message
+                    let file_name = next_file.file_name().unwrap_or_default().to_string_lossy();
+                    thread_bar.set_message(format!("Thread {} - {}", thread_id + 1, file_name));
 
-                        // Update the total progress bar
-                        total_progress_clone.inc(1);
-                    }
-                    Err(e) => {
-                        let err = format!("Error processing file {:?}: {}", next_file, e);
-                        eprintln!("{}", err);
-                        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, err)));
+                    // Calculate estimated line count based on previously processed files
+                    let estimated_lines = {
+                        let line_counts = file_line_counts_clone.lock().unwrap();
+                        if line_counts.is_empty() {
+                            1_000_000 // Default estimate if no files processed yet
+                        } else {
+                            let total: u64 = line_counts.iter().sum();
+                            let avg = total / line_counts.len() as u64;
+                            avg
+                        }
+                    };
+
+                    // Set the progress bar length to the estimated count
+                    thread_bar.set_length(estimated_lines);
+                    thread_bar.set_position(0);
+
+                    // Process the file
+                    match process_file(
+                        &next_file,
+                        magnitude_limit,
+                        Some(thread_bar.clone()),
+                        producer.clone(),
+                    ) {
+                        Ok(processed_count) => {
+                            // Get the final position of the progress bar to estimate file size
+                            let processed_lines = thread_bar.position();
+
+                            // Store line count for future estimates
+                            {
+                                let mut line_counts = file_line_counts_clone.lock().unwrap();
+                                line_counts.push(processed_lines);
+                            }
+
+                            // Add to this thread's total count
+                            total_count += processed_count;
+
+                            // Update the total progress bar
+                            total_progress_clone.inc(1);
+                        }
+                        Err(e) => {
+                            let err = format!("Error processing file {:?}: {}", next_file, e);
+                            eprintln!("{}", err);
+                            return Err(Box::new(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                err,
+                            )));
+                        }
                     }
                 }
-            }
 
-            // Finish the thread's progress bar
-            thread_bar.finish_with_message(format!("Thread {} - Complete", thread_id + 1));
-            
-            Ok(total_count)
-        });
+                // Finish the thread's progress bar
+                thread_bar.finish_with_message(format!("Thread {} - Complete", thread_id + 1));
+
+                Ok(total_count)
+            },
+        );
 
         // Add the handle to the collector
         star_collector.add_thread_handle(handle);
@@ -672,8 +678,11 @@ fn process_files_and_stream<P: AsRef<Path>>(
         &desc,
         None, // Use dynamic counting since we're streaming
     )?;
-    
-    write_progress.finish_with_message(format!("Catalog writing complete - {} stars", written_count));
+
+    write_progress.finish_with_message(format!(
+        "Catalog writing complete - {} stars",
+        written_count
+    ));
 
     Ok(written_count)
 }
@@ -748,7 +757,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_progress.set_message("Processing files");
 
             // Process the files in parallel and stream directly to output
-            
+
             let star_count = process_files_and_stream(
                 files,
                 &output_file,
@@ -799,27 +808,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Process single file in a separate thread to allow streaming
             println!("Processing single file: {}", input);
-            
+
             // Make a copy of the values we need for the thread
             let input_copy = input.clone();
             let magnitude = cli.magnitude;
-            
+
             // Spawn a thread for processing the file
-            let handle = thread::spawn(move || -> Result<u64, Box<dyn std::error::Error + Send + 'static>> {
-                match process_file(
-                    input_copy,
-                    magnitude,
-                    Some(progress_bar.clone()),
-                    producer,
-                ) {
-                    Ok(count) => Ok(count),
-                    Err(e) => {
-                        let err = format!("Error processing file: {}", e);
-                        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, err)))
+            let handle = thread::spawn(
+                move || -> Result<u64, Box<dyn std::error::Error + Send + 'static>> {
+                    match process_file(input_copy, magnitude, Some(progress_bar.clone()), producer)
+                    {
+                        Ok(count) => Ok(count),
+                        Err(e) => {
+                            let err = format!("Error processing file: {}", e);
+                            Err(Box::new(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                err,
+                            )))
+                        }
                     }
-                }
-            });
-            
+                },
+            );
+
             // Add the handle to the collector
             star_collector.add_thread_handle(handle);
 
@@ -852,8 +862,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &desc,
                 None, // Use dynamic counting since we're streaming
             )?;
-            
-            write_progress.finish_with_message(format!("Catalog writing complete - {} stars", star_count));
+
+            write_progress
+                .finish_with_message(format!("Catalog writing complete - {} stars", star_count));
 
             println!("Completed filtering:");
             println!(
