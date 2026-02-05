@@ -198,13 +198,15 @@ impl Timescale {
         self.leap_dates.push(2456109.5); // 2012-07-01
         self.leap_offsets.push(35);
 
-        // Recent leap seconds
         self.leap_dates.push(2457204.5); // 2015-07-01
         self.leap_offsets.push(36);
 
-        // Latest leap second (2017-01-01)
-        self.leap_dates.push(2457754.5);
+        self.leap_dates.push(2457754.5); // 2017-01-01
         self.leap_offsets.push(37);
+
+        // No leap seconds have been added since 2017-01-01.
+        // IERS has announced none through at least June 2026.
+        // Update this table when a new leap second is announced.
 
         self.init_leap_second_tables();
     }
@@ -1134,23 +1136,27 @@ impl Time {
     }
 
     /// Get the current leap seconds (TAI - UTC)
+    ///
+    /// Searches the leap second table for the appropriate offset at this time.
     pub fn leap_seconds(&self) -> f64 {
-        let utc_calendar = match self.utc_calendar() {
-            Ok(cal) => cal,
-            Err(_) => return 0.0, // Default if we can't compute
-        };
+        let tt_jd = self.tt();
+        let leap_dates = &self.ts.leap_dates;
+        let leap_offsets = &self.ts.leap_offsets;
 
-        // Find the appropriate leap second entry
-        // In a full implementation, this would search a complete leap second table
-        if utc_calendar.year >= 2017 {
-            37.0
-        } else if utc_calendar.year >= 2015 {
-            36.0
-        } else if utc_calendar.year >= 2012 {
-            35.0
-        } else {
-            // Simplified fallback
-            (utc_calendar.year - 1972) as f64 / 3.0 + 10.0
+        if leap_dates.is_empty() {
+            return 0.0;
+        }
+
+        // Binary search for the last leap date <= tt_jd
+        match leap_dates.binary_search_by(|d| d.partial_cmp(&tt_jd).unwrap()) {
+            Ok(i) => leap_offsets[i] as f64,
+            Err(i) => {
+                if i == 0 {
+                    0.0
+                } else {
+                    leap_offsets[i - 1] as f64
+                }
+            }
         }
     }
 
@@ -1546,18 +1552,35 @@ mod tests {
     }
 
     #[test]
+    fn test_leap_seconds_from_table() {
+        let ts = Timescale::default();
+
+        // Before first leap second (before 1972-01-01, JD 2441317.5)
+        let t_early = ts.tt_jd(2440000.0, None);
+        assert_eq!(t_early.leap_seconds(), 0.0);
+
+        // After 1972-01-01 (JD 2441317.5), offset = 10
+        let t_1972 = ts.tt_jd(2441400.0, None);
+        assert_eq!(t_1972.leap_seconds(), 10.0);
+
+        // At J2000 (2000-01-01, JD 2451545.0), offset = 32
+        let t_j2000 = ts.tt_jd(J2000, None);
+        assert_eq!(t_j2000.leap_seconds(), 32.0);
+
+        // After 2017-01-01 (JD 2457754.5), offset = 37
+        let t_2024 = ts.tt_jd(2460310.5, None);
+        assert_eq!(t_2024.leap_seconds(), 37.0);
+    }
+
+    #[test]
     fn test_tdb_calendar_constructor() {
         let ts = Timescale::default();
 
-        // tdb() and tt() should both handle the same calendar input consistently
-        // and the TDB vs TT values should differ by only the TDB-TT correction
         let t_tdb = ts.tdb((2020, 6, 21, 12, 0, 0.0));
         let t_tt = ts.tt((2020, 6, 21, 12, 0, 0.0));
 
-        // Both should have tdb_fraction set
         assert!(t_tdb.tdb_fraction.get().is_some());
 
-        // The TT values should be very close (< 2ms difference from TDB-TT correction)
         let tt_diff = (t_tdb.tt() - t_tt.tt()).abs() * DAY_S;
         assert!(
             tt_diff < 0.002,
@@ -1570,9 +1593,7 @@ mod tests {
         let ts = Timescale::default();
 
         let t = ts.tdb((2024, 1, 1, 0, 0, 0.0));
-        // tdb_fraction should be populated
         assert!(t.tdb_fraction.get().is_some());
-        // tdb() should return a valid JD
         assert!(t.tdb() > 2460000.0);
     }
 
@@ -1580,11 +1601,9 @@ mod tests {
     fn test_tdb_constructor_matches_tdb_jd() {
         let ts = Timescale::default();
 
-        // Use tdb_jd with a known JD, and verify tdb() stores the right value
         let t = ts.tdb_jd(J2000);
         assert_relative_eq!(t.tdb(), J2000, epsilon = 1e-10);
 
-        // TDB-TT should be < 2ms
         let tt_diff = (t.tdb() - t.tt()).abs() * DAY_S;
         assert!(tt_diff < 0.002, "TDB-TT should be < 2ms, got {tt_diff}s");
     }

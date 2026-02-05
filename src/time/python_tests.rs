@@ -1,7 +1,8 @@
 //! Python comparison tests for time module
 //!
 //! Validates Rust TDB calendar constructors, time formatting, caching behavior,
-//! delta-T spline, sidereal time, and Earth rotation matrices against Python Skyfield.
+//! delta-T spline, sidereal time, Earth rotation matrices, and leap-second
+//! offsets against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +125,54 @@ rust.collect_array(np.array(t.{prop}.flatten(), dtype=np.float64))
         2460000.5, // ~2023
     ];
 
+    // --- Leap-second tests ---
+
+    /// Test that our leap second offset matches Skyfield at various epochs
+    #[test]
+    fn test_leap_seconds_match_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let ts = Timescale::default();
+
+        let test_cases = [
+            (2451545.0, "J2000"),      // 2000-01-01: 32 leap seconds
+            (2457754.5, "2017-01-01"), // 37 leap seconds
+            (2460310.5, "2024-01-01"), // Still 37
+            (2444239.5, "1980-01-01"), // 19 leap seconds
+        ];
+
+        for (jd, label) in test_cases {
+            let py_result = bridge
+                .run_py_to_json(&format!(
+                    r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd({jd})
+import numpy as np
+leap_dates = ts.leap_dates
+leap_offsets = ts.leap_offsets
+idx = np.searchsorted(leap_dates, {jd}, side='right') - 1
+if idx < 0:
+    ls = 0
+else:
+    ls = int(leap_offsets[idx])
+rust.collect_string(str(ls))
+"#
+                ))
+                .unwrap_or_else(|e| panic!("Python failed for {label}: {e}"));
+
+            let py_ls = parse_f64(&py_result);
+
+            let t = ts.tt_jd(jd, None);
+            let rust_ls = t.leap_seconds();
+
+            assert!(
+                (rust_ls - py_ls).abs() < 0.5,
+                "{label} (JD {jd}): leap seconds mismatch: rust={rust_ls} python={py_ls}"
+            );
+        }
+    }
+
     // --- TDB calendar tests ---
 
     /// Test that tdb_jd() produces the same TT value as Skyfield's tdb_jd()
@@ -191,7 +240,6 @@ rust.collect_string(str(t.tdb))
             "TDB JD grossly wrong: rust={rust_tdb} python={py_tdb} diff={diff}"
         );
 
-        // Verify TDB-TT correction is correctly applied (< 2ms)
         let tt_diff = (t.tdb() - t.tt()).abs() * 86400.0;
         assert!(
             tt_diff < 0.002,
