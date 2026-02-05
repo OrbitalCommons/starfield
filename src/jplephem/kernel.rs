@@ -114,8 +114,10 @@ impl SpiceKernel {
         target_id(name).ok_or_else(|| JplephemError::Other(format!("Unknown body name: '{name}'")))
     }
 
-    /// Compute position and velocity for a chain of segments at a given TDB seconds
-    fn compute_chain(
+    /// Compute position and velocity for a chain of segments at a given TDB seconds.
+    ///
+    /// Returns raw (km, km/s) values from the underlying SPK data.
+    pub fn compute_chain_pub(
         &mut self,
         chain: &[(i32, i32)],
         tdb_seconds: f64,
@@ -140,7 +142,7 @@ impl SpiceKernel {
     pub fn compute_at(&mut self, name: &str, time: &Time) -> Result<PlanetState> {
         let vf = self.get(name)?;
         let tdb_seconds = jd_to_seconds(time.tdb());
-        let (pos_km, vel_km_s) = self.compute_chain(&vf.chain, tdb_seconds)?;
+        let (pos_km, vel_km_s) = self.compute_chain_pub(&vf.chain, tdb_seconds)?;
 
         Ok(PlanetState {
             position: Point3::new(pos_km.x / AU_KM, pos_km.y / AU_KM, pos_km.z / AU_KM),
@@ -156,7 +158,21 @@ impl SpiceKernel {
     pub fn compute_km(&mut self, name: &str, time: &Time) -> Result<(Vector3<f64>, Vector3<f64>)> {
         let vf = self.get(name)?;
         let tdb_seconds = jd_to_seconds(time.tdb());
-        self.compute_chain(&vf.chain, tdb_seconds)
+        self.compute_chain_pub(&vf.chain, tdb_seconds)
+    }
+
+    /// Compute a body's barycentric position at a given time.
+    ///
+    /// Returns a [`Position`](crate::positions::Position) with PositionKind::Barycentric,
+    /// position in AU and velocity in AU/day, relative to the SSB.
+    pub fn at(&mut self, name: &str, time: &Time) -> Result<crate::positions::Position> {
+        let state = self.compute_at(name, time)?;
+        let vf = self.get(name)?;
+        Ok(crate::positions::Position::barycentric(
+            Vector3::new(state.position.x, state.position.y, state.position.z),
+            state.velocity,
+            vf.target_id,
+        ))
     }
 
     /// Access the underlying SPK for direct segment access
