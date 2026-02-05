@@ -695,7 +695,8 @@ mod tests {
             0.0,
             REFRACTION_DEGREES,
         );
-        let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
+        // step_days = 0.25 matches Skyfield's risings_and_settings default
+        let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
         assert!(
             events.len() >= 3,

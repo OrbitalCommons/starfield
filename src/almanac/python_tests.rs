@@ -634,7 +634,8 @@ rust.collect_string(jds + '|' + evts)
             43.0,
             REFRACTION_DEGREES,
         );
-        let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
+        // step_days = 0.25 matches Skyfield's risings_and_settings default
+        let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
         // Tolerance: 300 seconds — Moon's apparent radius not modeled
         assert_event_times(&events, &py_jds, 300.0, "Moon rise/set");
@@ -684,7 +685,8 @@ rust.collect_string(jds + '|' + evts)
             11.0,
             REFRACTION_DEGREES,
         );
-        let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
+        // step_days = 0.25 matches Skyfield's risings_and_settings default
+        let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
         assert_event_times(&events, &py_jds, 300.0, "Mars rise/set Greenwich");
     }
