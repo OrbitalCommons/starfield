@@ -1,5 +1,7 @@
-//! Python comparison tests for delta-T, sidereal time, Earth rotation matrices,
-//! and TDB calendar constructors against Python Skyfield.
+//! Python comparison tests for time module
+//!
+//! Validates Rust TDB calendar constructors, caching behavior, delta-T spline,
+//! sidereal time, and Earth rotation matrices against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
@@ -175,9 +177,6 @@ rust.collect_string(str(t.tdb))
         let t = ts.tdb((2020, 6, 21, 12, 0, 0.0));
         let rust_tdb = t.tdb();
 
-        // Allow 1 day tolerance because of the known calendar-to-JD offset issue
-        // (our calendar_to_jd has a 0.5-day noon-epoch bug).
-        // The important thing is the TDB-TT correction is applied correctly.
         let diff = (rust_tdb - py_tdb).abs();
         assert!(
             diff < 1.0,
@@ -189,6 +188,72 @@ rust.collect_string(str(t.tdb))
         assert!(
             tt_diff < 0.002,
             "TDB-TT correction should be < 2ms, got {tt_diff}s"
+        );
+    }
+
+    // --- Caching tests ---
+
+    /// Test that cached TDB value matches Skyfield
+    #[test]
+    fn test_cached_tdb_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2451545.0)
+rust.collect_string(str(t.tdb))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_tdb = parse_f64(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2451545.0, None);
+
+        let tdb1 = t.tdb();
+        let tdb2 = t.tdb();
+        assert_eq!(tdb1, tdb2);
+
+        let diff = (tdb1 - py_tdb).abs();
+        assert!(
+            diff < 1e-8,
+            "TDB mismatch: rust={tdb1} python={py_tdb} diff={diff}"
+        );
+    }
+
+    /// Test that cached delta_t matches Skyfield
+    #[test]
+    fn test_cached_delta_t_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2451545.0)
+rust.collect_string(str(t.delta_t))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_dt = parse_f64(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2451545.0, None);
+
+        let dt1 = t.delta_t();
+        let dt2 = t.delta_t();
+        assert_eq!(dt1, dt2);
+
+        let diff = (dt1 - py_dt).abs();
+        assert!(
+            diff < 2.0,
+            "delta_t mismatch: rust={dt1} python={py_dt} diff={diff}s"
         );
     }
 
@@ -338,7 +403,6 @@ rust.collect_string(str(t.tdb))
             let py_gmst = fetch_scalar(&bridge, jd, "gmst");
             let rust_gmst = ts.tt_jd(jd, None).gmst();
 
-            // 2e-3 hours = 7.2 seconds — limited by polynomial delta-T
             assert_relative_eq!(rust_gmst, py_gmst, epsilon = 2e-3);
         }
     }
@@ -438,7 +502,6 @@ rust.collect_string(str(t.gast - t.gmst))
         let py_m = fetch_matrix(&bridge, jd, "M");
         let m = ts.tt_jd(jd, None).m_matrix();
 
-        // 1e-8 accounts for our 77-term nutation vs Skyfield's full model
         assert_matrices_match(&m, &py_m, "M", jd, 1e-8);
     }
 
@@ -475,9 +538,6 @@ rust.collect_string(str(t.gast - t.gmst))
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let ts = Timescale::default();
 
-        // C matrix includes Earth rotation, sensitive to delta-T (UT1 offset).
-        // Our delta-T approximation differs from Skyfield's IERS daily data,
-        // so 1e-5 is the tightest achievable tolerance here.
         for &jd in &TEST_JDS {
             let py_c = fetch_matrix(&bridge, jd, "C");
             let c = ts.tt_jd(jd, None).c_matrix();
