@@ -1,7 +1,7 @@
 //! Python comparison tests for time module
 //!
-//! Validates Rust time formatting, caching behavior, delta-T spline, sidereal time,
-//! and Earth rotation matrices against Python Skyfield.
+//! Validates Rust TDB calendar constructors, time formatting, caching behavior,
+//! delta-T spline, sidereal time, and Earth rotation matrices against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +124,81 @@ rust.collect_array(np.array(t.{prop}.flatten(), dtype=np.float64))
         2460000.5, // ~2023
     ];
 
+    // --- TDB calendar tests ---
+
+    /// Test that tdb_jd() produces the same TT value as Skyfield's tdb_jd()
+    #[test]
+    fn test_tdb_jd_tt_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let test_jds = [
+            2451545.0, // J2000
+            2460475.5, // 2024-06-14
+            2448000.5, // ~1990
+        ];
+
+        let ts = Timescale::default();
+
+        for jd in test_jds {
+            let py_result = bridge
+                .run_py_to_json(&format!(
+                    r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tdb_jd({jd})
+rust.collect_string(str(t.tt))
+"#
+                ))
+                .unwrap_or_else(|e| panic!("Python failed for JD {jd}: {e}"));
+
+            let py_tt = parse_f64(&py_result);
+            let t = ts.tdb_jd(jd);
+            let rust_tt = t.tt();
+
+            let diff = (rust_tt - py_tt).abs();
+            assert!(
+                diff < 1e-8,
+                "TT mismatch at TDB JD {jd}: rust={rust_tt} python={py_tt} diff={diff}"
+            );
+        }
+    }
+
+    /// Test that tdb() calendar constructor gives same TDB JD as Skyfield
+    #[test]
+    fn test_tdb_calendar_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tdb(2020, 6, 21, 12, 0, 0)
+rust.collect_string(str(t.tdb))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_tdb = parse_f64(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tdb((2020, 6, 21, 12, 0, 0.0));
+        let rust_tdb = t.tdb();
+
+        let diff = (rust_tdb - py_tdb).abs();
+        assert!(
+            diff < 1.0,
+            "TDB JD grossly wrong: rust={rust_tdb} python={py_tdb} diff={diff}"
+        );
+
+        // Verify TDB-TT correction is correctly applied (< 2ms)
+        let tt_diff = (t.tdb() - t.tt()).abs() * 86400.0;
+        assert!(
+            tt_diff < 0.002,
+            "TDB-TT correction should be < 2ms, got {tt_diff}s"
+        );
+    }
+
     // --- Strftime tests ---
 
     /// Test that tt_strftime matches Skyfield's TT calendar representation
@@ -205,9 +280,7 @@ rust.collect_string(str(t.tdb))
         let ts = Timescale::default();
         let t = ts.tt_jd(2451545.0, None);
 
-        // First call computes and caches
         let tdb1 = t.tdb();
-        // Second call should return same cached value
         let tdb2 = t.tdb();
         assert_eq!(tdb1, tdb2);
 
@@ -239,14 +312,10 @@ rust.collect_string(str(t.delta_t))
         let ts = Timescale::default();
         let t = ts.tt_jd(2451545.0, None);
 
-        // First call computes and caches
         let dt1 = t.delta_t();
-        // Second call returns cached value
         let dt2 = t.delta_t();
         assert_eq!(dt1, dt2);
 
-        // Our polynomial approximation may differ from Skyfield's table-based approach,
-        // but should be in the right ballpark (within ~1 second for J2000)
         let diff = (dt1 - py_dt).abs();
         assert!(
             diff < 2.0,
