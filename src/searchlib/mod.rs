@@ -246,7 +246,7 @@ fn choose_brackets(y: &[f64]) -> (Vec<usize>, Vec<usize>) {
         left.push(idx);
         left.push(idx + 1);
     }
-    left = remove_adjacent_duplicates_usize(&left);
+    left = remove_adjacent_duplicates(&left);
 
     let right: Vec<usize> = left.iter().map(|&l| l + 1).collect();
     (left, right)
@@ -330,20 +330,8 @@ fn diff_sign_diff(y: &[f64]) -> Vec<i32> {
     sign_diff.windows(2).map(|w| w[1] - w[0]).collect()
 }
 
-fn remove_adjacent_duplicates(a: &[f64]) -> Vec<f64> {
-    if a.is_empty() {
-        return Vec::new();
-    }
-    let mut result = vec![a[0]];
-    for i in 1..a.len() {
-        if a[i] != a[i - 1] {
-            result.push(a[i]);
-        }
-    }
-    result
-}
-
-fn remove_adjacent_duplicates_usize(a: &[usize]) -> Vec<usize> {
+/// Remove consecutive duplicate values from a sorted slice.
+fn remove_adjacent_duplicates<T: Copy + PartialEq>(a: &[T]) -> Vec<T> {
     if a.is_empty() {
         return Vec::new();
     }

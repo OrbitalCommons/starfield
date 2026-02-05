@@ -6,38 +6,38 @@
 #[cfg(test)]
 mod tests {
     use crate::almanac::*;
-    use crate::jplephem::kernel::SpiceKernel;
     use crate::pybridge::bridge::PyRustBridge;
-    use crate::pybridge::helpers::PythonResult;
+    use crate::pybridge::test_utils::{
+        angular_diff_deg, de421_kernel, parse_events, parse_f64, parse_f64_list, parse_i64_list,
+    };
     use crate::searchlib::{find_discrete, DEFAULT_NUM, EPSILON_DISCRETE};
     use crate::time::Timescale;
 
-    fn parse_f64(result: &str) -> f64 {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => s.parse::<f64>().expect("Failed to parse f64"),
-            _ => panic!("Expected String result, got {:?}", parsed),
+    /// Assert event times match within a tolerance (seconds)
+    fn assert_event_times(rust: &[(f64, i64)], py_jds: &[f64], tolerance_sec: f64, label: &str) {
+        assert_eq!(
+            rust.len(),
+            py_jds.len(),
+            "{label} count mismatch: rust={} python={}",
+            rust.len(),
+            py_jds.len()
+        );
+        for (i, ((rust_jd, _), &py_jd)) in rust.iter().zip(py_jds.iter()).enumerate() {
+            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
+            assert!(
+                diff_sec < tolerance_sec,
+                "{label} event {i} time diff: {diff_sec:.1}s (rust={rust_jd} py={py_jd})"
+            );
         }
     }
 
-    fn parse_f64_list(result: &str) -> Vec<f64> {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => s.split(',').map(|v| v.trim().parse().unwrap()).collect(),
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn parse_i64_list(result: &str) -> Vec<i64> {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => s.split(',').map(|v| v.trim().parse().unwrap()).collect(),
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
+    /// Assert event types match exactly
+    fn assert_event_types(rust: &[(f64, i64)], py_types: &[i64], label: &str) {
+        let rust_types: Vec<i64> = rust.iter().map(|e| e.1).collect();
+        assert_eq!(
+            rust_types, py_types,
+            "{label} types differ: rust={rust_types:?} python={py_types:?}"
+        );
     }
 
     // --- Season event times ---
@@ -78,25 +78,8 @@ rust.collect_string(jds)
         let mut f = seasons(&mut kernel);
         let events = find_discrete(t0, t1, &mut f, 90.0, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Different number of season events: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, _), &py_jd)) in events.iter().zip(py_jds.iter()).enumerate() {
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 60.0,
-                "Season event {} time diff: {:.1}s (rust={} py={})",
-                i,
-                diff_sec,
-                rust_jd,
-                py_jd
-            );
-        }
+        // Tolerance: 60 seconds — differences from ecliptic longitude precision
+        assert_event_times(&events, &py_jds, 60.0, "2005 seasons");
     }
 
     /// Compare season event types against Skyfield
@@ -133,13 +116,8 @@ rust.collect_string(','.join(str(e) for e in events))
 
         let mut f = seasons(&mut kernel);
         let events = find_discrete(t0, t1, &mut f, 90.0, EPSILON_DISCRETE, DEFAULT_NUM);
-        let rust_types: Vec<i64> = events.iter().map(|e| e.1).collect();
 
-        assert_eq!(
-            rust_types, py_types,
-            "Season event types differ: rust={:?} python={:?}",
-            rust_types, py_types
-        );
+        assert_event_types(&events, &py_types, "2005 seasons");
     }
 
     /// Seasons in 2010 — different year for robustness
@@ -169,20 +147,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -192,25 +157,8 @@ rust.collect_string(jds + '|' + evts)
         let mut f = seasons(&mut kernel);
         let events = find_discrete(t0, t1, &mut f, 90.0, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(events.len(), py_jds.len());
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Season {} type mismatch: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 60.0,
-                "Season {} time diff {:.1}s too large",
-                i,
-                diff_sec
-            );
-        }
+        assert_event_times(&events, &py_jds, 60.0, "2010 seasons");
+        assert_event_types(&events, &py_types, "2010 seasons");
     }
 
     // --- Moon phase angle ---
@@ -245,18 +193,11 @@ rust.collect_string(str(angle.degrees))
             let angles = moon_phase_angle(&mut kernel, &[jd]);
             let rust_deg = angles[0];
 
-            let diff = (rust_deg - py_deg).abs().min(
-                (rust_deg - py_deg + 360.0)
-                    .abs()
-                    .min((rust_deg - py_deg - 360.0).abs()),
-            );
+            // Tolerance: 1° — ecliptic longitude precision across pipelines
+            let diff = angular_diff_deg(rust_deg, py_deg);
             assert!(
                 diff < 1.0,
-                "Moon phase angle at JD {}: rust={:.2}° py={:.2}° diff={:.2}°",
-                jd,
-                rust_deg,
-                py_deg,
-                diff
+                "Moon phase angle at JD {jd}: rust={rust_deg:.2}° py={py_deg:.2}° diff={diff:.2}°",
             );
         }
     }
@@ -290,20 +231,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -313,34 +241,9 @@ rust.collect_string(jds + '|' + evts)
         let mut f = moon_phases(&mut kernel);
         let events = find_discrete(t0, t1, &mut f, 7.0, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Moon phase event count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Moon phase {} type mismatch: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 120.0,
-                "Moon phase {} time diff {:.1}s (rust={} py={})",
-                i,
-                diff_sec,
-                rust_jd,
-                py_jd
-            );
-        }
+        // Tolerance: 120 seconds — Moon's faster ecliptic motion widens timing error
+        assert_event_times(&events, &py_jds, 120.0, "Moon phases 2005");
+        assert_event_types(&events, &py_types, "Moon phases 2005");
     }
 
     // --- Sun ecliptic longitude ---
@@ -376,18 +279,11 @@ rust.collect_string(str(slon.degrees))
             let lons = sun_ecliptic_longitude(&mut kernel, &[jd]);
             let rust_deg = lons[0].to_degrees();
 
-            let diff = (rust_deg - py_deg).abs().min(
-                (rust_deg - py_deg + 360.0)
-                    .abs()
-                    .min((rust_deg - py_deg - 360.0).abs()),
-            );
+            // Tolerance: 0.01° — ecliptic frame precision
+            let diff = angular_diff_deg(rust_deg, py_deg);
             assert!(
                 diff < 0.01,
-                "Sun ecl lon at JD {}: rust={:.4}° py={:.4}° diff={:.4}°",
-                jd,
-                rust_deg,
-                py_deg,
-                diff
+                "Sun ecl lon at JD {jd}: rust={rust_deg:.4}° py={py_deg:.4}° diff={diff:.4}°",
             );
         }
     }
@@ -425,18 +321,11 @@ rust.collect_string(str(mlon.degrees))
             let lons = moon_ecliptic_longitude(&mut kernel, &[jd]);
             let rust_deg = lons[0].to_degrees();
 
-            let diff = (rust_deg - py_deg).abs().min(
-                (rust_deg - py_deg + 360.0)
-                    .abs()
-                    .min((rust_deg - py_deg - 360.0).abs()),
-            );
+            // Tolerance: 0.05° — Moon's fast motion amplifies small timing differences
+            let diff = angular_diff_deg(rust_deg, py_deg);
             assert!(
                 diff < 0.05,
-                "Moon ecl lon at JD {}: rust={:.4}° py={:.4}° diff={:.4}°",
-                jd,
-                rust_deg,
-                py_deg,
-                diff
+                "Moon ecl lon at JD {jd}: rust={rust_deg:.4}° py={py_deg:.4}° diff={diff:.4}°",
             );
         }
     }
@@ -470,20 +359,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, _py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -493,23 +369,8 @@ rust.collect_string(jds + '|' + evts)
         let mut f = oppositions_conjunctions(&mut kernel, "mars");
         let events = find_discrete(t0, t1, &mut f, 30.0, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Mars opposition/conj count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, _), &py_jd)) in events.iter().zip(py_jds.iter()).enumerate() {
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 300.0,
-                "Mars event {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        // Tolerance: 300 seconds — opposition search over wide step size
+        assert_event_times(&events, &py_jds, 300.0, "Mars 2003 opposition");
     }
 
     /// Jupiter opposition/conjunction events 2005-2007
@@ -539,16 +400,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, _py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -558,23 +410,7 @@ rust.collect_string(jds + '|' + evts)
         let mut f = oppositions_conjunctions(&mut kernel, "jupiter barycenter");
         let events = find_discrete(t0, t1, &mut f, 30.0, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Jupiter event count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, _), &py_jd)) in events.iter().zip(py_jds.iter()).enumerate() {
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 300.0,
-                "Jupiter event {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        assert_event_times(&events, &py_jds, 300.0, "Jupiter 2005-2007");
     }
 
     // --- Sunrise / sunset ---
@@ -607,20 +443,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -630,32 +453,9 @@ rust.collect_string(jds + '|' + evts)
         let mut f = sunrise_sunset(&mut kernel, 42.3583, -71.0603, 43.0);
         let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Sunrise/sunset count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Event {} type mismatch: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 120.0,
-                "Sunrise/sunset {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        // Tolerance: 120 seconds — UT1-UTC and nutation model differences
+        assert_event_times(&events, &py_jds, 120.0, "Boston sunrise/sunset");
+        assert_event_types(&events, &py_types, "Boston sunrise/sunset");
     }
 
     /// Sunrise/sunset at Sydney (southern hemisphere) December 2009
@@ -686,20 +486,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -709,32 +496,8 @@ rust.collect_string(jds + '|' + evts)
         let mut f = sunrise_sunset(&mut kernel, -33.8688, 151.2093, 58.0);
         let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Sunrise/sunset count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Sydney event {} type: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 120.0,
-                "Sydney sunrise/sunset {} diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        assert_event_times(&events, &py_jds, 120.0, "Sydney sunrise/sunset");
+        assert_event_types(&events, &py_types, "Sydney sunrise/sunset");
     }
 
     // --- Twilight ---
@@ -767,20 +530,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -790,33 +540,8 @@ rust.collect_string(jds + '|' + evts)
         let mut f = dark_twilight_day(&mut kernel, 42.3583, -71.0603, 43.0);
         let events = find_discrete(t0, t1, &mut f, 0.25, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        // We should get the same number of transitions
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Twilight transition count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Twilight {} type: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 120.0,
-                "Twilight {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        assert_event_times(&events, &py_jds, 120.0, "Boston twilight");
+        assert_event_types(&events, &py_types, "Boston twilight");
     }
 
     // --- Meridian transits ---
@@ -849,20 +574,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -872,32 +584,9 @@ rust.collect_string(jds + '|' + evts)
         let mut f = meridian_transits(&mut kernel, "sun", 42.3583, -71.0603, 43.0);
         let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Transit count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Transit {} type: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 120.0,
-                "Transit {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        // Tolerance: 120 seconds — hour angle wrapping near transit
+        assert_event_times(&events, &py_jds, 120.0, "Sun transits");
+        assert_event_types(&events, &py_types, "Sun transits");
     }
 
     // --- Rising and setting ---
@@ -930,20 +619,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -960,32 +636,9 @@ rust.collect_string(jds + '|' + evts)
         );
         let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Moon rise/set count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, rust_type), (&py_jd, &py_type))) in events
-            .iter()
-            .zip(py_jds.iter().zip(py_types.iter()))
-            .enumerate()
-        {
-            assert_eq!(
-                *rust_type, py_type,
-                "Moon event {} type: rust={} py={}",
-                i, rust_type, py_type
-            );
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 300.0,
-                "Moon rise/set {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        // Tolerance: 300 seconds — Moon's apparent radius not modeled
+        assert_event_times(&events, &py_jds, 300.0, "Moon rise/set");
+        assert_event_types(&events, &py_types, "Moon rise/set");
     }
 
     /// Compare Mars risings/settings at Greenwich
@@ -1016,20 +669,7 @@ rust.collect_string(jds + '|' + evts)
             )
             .expect("Failed to run Python code");
 
-        let parsed = PythonResult::try_from(py_result.as_str()).expect("parse");
-        let s = match parsed {
-            PythonResult::String(s) => s,
-            _ => panic!("Expected String"),
-        };
-        let parts: Vec<&str> = s.split('|').collect();
-        let py_jds: Vec<f64> = parts[0]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
-        let py_types: Vec<i64> = parts[1]
-            .split(',')
-            .map(|v| v.trim().parse().unwrap())
-            .collect();
+        let (py_jds, _py_types) = parse_events(&py_result);
 
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -1046,22 +686,6 @@ rust.collect_string(jds + '|' + evts)
         );
         let events = find_discrete(t0, t1, &mut f, 0.5, EPSILON_DISCRETE, DEFAULT_NUM);
 
-        assert_eq!(
-            events.len(),
-            py_jds.len(),
-            "Mars rise/set count: rust={} python={}",
-            events.len(),
-            py_jds.len()
-        );
-
-        for (i, ((rust_jd, _), &py_jd)) in events.iter().zip(py_jds.iter()).enumerate() {
-            let diff_sec = (rust_jd - py_jd).abs() * 86400.0;
-            assert!(
-                diff_sec < 300.0,
-                "Mars rise/set {} time diff: {:.1}s",
-                i,
-                diff_sec
-            );
-        }
+        assert_event_times(&events, &py_jds, 300.0, "Mars rise/set Greenwich");
     }
 }

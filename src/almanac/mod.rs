@@ -57,43 +57,37 @@ pub const TWILIGHT_NAMES: &[&str] = &[
     "Day",
 ];
 
+/// Compute the ecliptic longitude of a target body as seen from Earth at the
+/// given TDB Julian dates. Returns longitudes in radians [0, 2*PI).
+fn body_ecliptic_longitude(kernel: &mut SpiceKernel, target: &str, jd_tdb: &[f64]) -> Vec<f64> {
+    let ts = Timescale::default();
+
+    jd_tdb
+        .iter()
+        .map(|&jd| {
+            let t = ts.tdb_jd(jd);
+            let earth = kernel.at("earth", &t).unwrap();
+            let astro = earth.observe(target, kernel, &t).unwrap();
+            let app = astro.apparent(kernel, &t).unwrap();
+            let (lon, _lat, _dist) = app.ecliptic_latlon();
+            lon
+        })
+        .collect()
+}
+
 /// Compute the ecliptic longitude of the Sun as seen from Earth at the given
 /// TDB Julian dates.
 ///
 /// Used internally by [`seasons`] and can be called directly for custom
 /// ecliptic longitude queries. Returns longitudes in radians [0, 2*PI).
 pub fn sun_ecliptic_longitude(kernel: &mut SpiceKernel, jd_tdb: &[f64]) -> Vec<f64> {
-    let ts = Timescale::default();
-
-    jd_tdb
-        .iter()
-        .map(|&jd| {
-            let t = ts.tdb_jd(jd);
-            let earth = kernel.at("earth", &t).unwrap();
-            let sun_astro = earth.observe("sun", kernel, &t).unwrap();
-            let sun_app = sun_astro.apparent(kernel, &t).unwrap();
-            let (lon, _lat, _dist) = sun_app.ecliptic_latlon();
-            lon
-        })
-        .collect()
+    body_ecliptic_longitude(kernel, "sun", jd_tdb)
 }
 
 /// Compute the ecliptic longitude of the Moon as seen from Earth at the given
 /// TDB Julian dates. Returns longitudes in radians [0, 2*PI).
 pub fn moon_ecliptic_longitude(kernel: &mut SpiceKernel, jd_tdb: &[f64]) -> Vec<f64> {
-    let ts = Timescale::default();
-
-    jd_tdb
-        .iter()
-        .map(|&jd| {
-            let t = ts.tdb_jd(jd);
-            let earth = kernel.at("earth", &t).unwrap();
-            let moon_astro = earth.observe("moon", kernel, &t).unwrap();
-            let moon_app = moon_astro.apparent(kernel, &t).unwrap();
-            let (lon, _lat, _dist) = moon_app.ecliptic_latlon();
-            lon
-        })
-        .collect()
+    body_ecliptic_longitude(kernel, "moon", jd_tdb)
 }
 
 /// Return a closure that computes the season index (0..3) from the Sun's
@@ -180,21 +174,14 @@ fn sun_altitude(
     elevation_m: f64,
     jd_tdb: &[f64],
 ) -> Vec<f64> {
-    let ts = Timescale::default();
-    let geoid = crate::toposlib::WGS84;
-    let observer = geoid.latlon(latitude_deg, longitude_deg, elevation_m);
-
-    jd_tdb
-        .iter()
-        .map(|&jd| {
-            let t = ts.tdb_jd(jd);
-            let obs_pos = observer.at(&t, kernel).unwrap();
-            let sun_astro = obs_pos.observe("sun", kernel, &t).unwrap();
-            let sun_app = sun_astro.apparent(kernel, &t).unwrap();
-            let (alt, _az, _dist) = observer.altaz(&sun_app, &t);
-            alt
-        })
-        .collect()
+    body_altitude(
+        kernel,
+        "sun",
+        latitude_deg,
+        longitude_deg,
+        elevation_m,
+        jd_tdb,
+    )
 }
 
 /// Return a closure that computes whether the Sun is above the horizon (1)

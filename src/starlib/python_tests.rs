@@ -1,43 +1,19 @@
 //! Python comparison tests for starlib
 //!
-//! Validates Rust star positions, proper motion propagation, and the full
-//! observe→apparent→radec pipeline against Python Skyfield.
+//! Validates Rust star positions, velocity vectors, proper motion propagation,
+//! and the full observe→apparent→radec pipeline against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
-    use crate::jplephem::kernel::SpiceKernel;
     use crate::pybridge::bridge::PyRustBridge;
-    use crate::pybridge::helpers::PythonResult;
+    use crate::pybridge::test_utils::{de421_kernel, parse_f64_triple};
     use crate::starlib::Star;
     use crate::time::Timescale;
     use approx::assert_relative_eq;
 
-    fn parse_f64(result: &str) -> f64 {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => s.parse::<f64>().expect("Failed to parse f64"),
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn parse_f64_triple(result: &str) -> (f64, f64, f64) {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => {
-                let parts: Vec<f64> = s.split(',').map(|p| p.trim().parse().unwrap()).collect();
-                (parts[0], parts[1], parts[2])
-            }
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
-    }
-
     // --- Position vector tests ---
 
-    /// Test that position vector from catalog coords matches Skyfield
+    /// Barnard's Star position vector from catalog coords matches Skyfield
     #[test]
     fn test_position_vector_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -71,7 +47,7 @@ rust.collect_string(f"{x},{y},{z}")
         assert_relative_eq!(s.position_au.z, py_z, epsilon = 1e-6);
     }
 
-    /// Test that velocity vector matches Skyfield
+    /// Barnard's Star velocity vector matches Skyfield
     #[test]
     fn test_velocity_vector_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -100,6 +76,7 @@ rust.collect_string(f"{vx},{vy},{vz}")
             -110.6,
         );
 
+        // Velocity vectors should match to high precision
         assert_relative_eq!(s.velocity_au_per_day.x, py_vx, epsilon = 1e-10);
         assert_relative_eq!(s.velocity_au_per_day.y, py_vy, epsilon = 1e-10);
         assert_relative_eq!(s.velocity_au_per_day.z, py_vz, epsilon = 1e-10);
@@ -107,7 +84,7 @@ rust.collect_string(f"{vx},{vy},{vz}")
 
     // --- Astrometric RA/Dec tests ---
 
-    /// Test Barnard's Star astrometric RA/Dec at J2000 matches Skyfield
+    /// Barnard's Star astrometric RA/Dec at J2000 matches Skyfield
     #[test]
     fn test_barnard_radec_j2000_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -147,7 +124,7 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
         let astro = barnard.observe_from(&earth, &t);
         let (rust_ra_h, rust_dec, rust_dist) = astro.radec(None);
 
-        // Should match within ~1 arcsecond
+        // Tolerance: ~1 arcsecond
         assert!(
             (rust_ra_h - py_ra_h).abs() < 0.01,
             "RA mismatch: rust={rust_ra_h}h python={py_ra_h}h diff={}h",
@@ -157,14 +134,13 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
             (rust_dec - py_dec).abs() < 0.01,
             "Dec mismatch: rust={rust_dec}° python={py_dec}°",
         );
-        // Distance within 0.1%
         assert!(
             (rust_dist - py_dist).abs() / py_dist < 0.001,
             "Distance mismatch: rust={rust_dist} python={py_dist}",
         );
     }
 
-    /// Test apparent RA/Dec of Barnard's Star matches Skyfield
+    /// Barnard's Star apparent RA/Dec matches Skyfield
     #[test]
     fn test_barnard_apparent_radec_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -205,7 +181,6 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
         let apparent = astro.apparent(&mut kernel, &t).unwrap();
         let (rust_ra_h, rust_dec, _) = apparent.radec(None);
 
-        // Apparent should match within ~1 arcsecond
         assert!(
             (rust_ra_h - py_ra_h).abs() < 0.01,
             "Apparent RA mismatch: rust={rust_ra_h}h python={py_ra_h}h",
@@ -218,7 +193,7 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
 
     // --- Proper motion tests ---
 
-    /// Test that proper motion changes RA/Dec over 50 years, matching Skyfield
+    /// Proper motion shifts Barnard's Star measurably over 50 years
     #[test]
     fn test_barnard_proper_motion_50yr_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -268,9 +243,9 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
         );
     }
 
-    // --- Distant star test ---
+    // --- Zero-motion star test ---
 
-    /// Test a star with zero proper motion
+    /// A star with zero proper motion and parallax
     #[test]
     fn test_zero_motion_star_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -313,13 +288,13 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
 
     // --- Polaris test ---
 
-    /// Test Polaris apparent position matches Skyfield
+    /// Polaris apparent position matches Skyfield at ~2017
     #[test]
     fn test_polaris_apparent_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
-        let t = ts.tdb_jd(2458000.5); // ~2017
+        let t = ts.tdb_jd(2458000.5);
 
         let py_result = bridge
             .run_py_to_json(
@@ -338,20 +313,47 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
             )
             .expect("Failed to run Python code");
 
-        let (py_ra_deg, py_dec, _) = parse_f64_triple(&py_result);
-        let py_ra_h = py_ra_deg / 15.0;
+        let (_, py_dec, _) = parse_f64_triple(&py_result);
 
         let earth = kernel.at("earth", &t).unwrap();
         let polaris = Star::from_ra_hours(2.5301, 89.2641, 44.22, -11.74, 7.54, -17.4);
         let astro = polaris.observe_from(&earth, &t);
         let apparent = astro.apparent(&mut kernel, &t).unwrap();
-        let (rust_ra_h, rust_dec, _) = apparent.radec(None);
+        let (_, rust_dec, _) = apparent.radec(None);
 
-        // Polaris RA can differ more since it's near the pole
-        // but Dec should be very close
+        // Polaris RA is unstable near the pole — only check Dec
         assert!(
             (rust_dec - py_dec).abs() < 0.05,
             "Polaris Dec mismatch: rust={rust_dec}° python={py_dec}°",
         );
+    }
+
+    // --- Sirius test (negative declination, moderate proper motion) ---
+
+    /// Sirius position vector matches Skyfield
+    #[test]
+    fn test_sirius_position_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import Star
+s = Star(ra_hours=6.7525694, dec_degrees=-16.7161,
+         ra_mas_per_year=-546.01, dec_mas_per_year=-1223.07,
+         parallax_mas=379.21, radial_km_per_s=-5.5)
+x, y, z = s._position_au
+rust.collect_string(f"{x},{y},{z}")
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let (py_x, py_y, py_z) = parse_f64_triple(&py_result);
+
+        let s = Star::from_ra_hours(6.7525694, -16.7161, -546.01, -1223.07, 379.21, -5.5);
+
+        assert_relative_eq!(s.position_au.x, py_x, epsilon = 1e-6);
+        assert_relative_eq!(s.position_au.y, py_y, epsilon = 1e-6);
+        assert_relative_eq!(s.position_au.z, py_z, epsilon = 1e-6);
     }
 }
