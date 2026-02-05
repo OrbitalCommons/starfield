@@ -27,6 +27,7 @@ pub mod pybridge;
 pub mod relativity;
 pub mod searchlib;
 pub mod time;
+pub mod toposlib;
 pub mod units;
 
 // Re-export commonly used types
