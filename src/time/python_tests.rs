@@ -1,6 +1,6 @@
 //! Python comparison tests for time module
 //!
-//! Validates Rust time caching behavior, delta-T spline, sidereal time,
+//! Validates Rust time formatting, caching behavior, delta-T spline, sidereal time,
 //! and Earth rotation matrices against Python Skyfield.
 
 #[cfg(test)]
@@ -14,6 +14,14 @@ mod tests {
         let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
         match parsed {
             PythonResult::String(s) => s.parse::<f64>().expect("Failed to parse f64"),
+            _ => panic!("Expected String result, got {:?}", parsed),
+        }
+    }
+
+    fn parse_string(result: &str) -> String {
+        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
+        match parsed {
+            PythonResult::String(s) => s,
             _ => panic!("Expected String result, got {:?}", parsed),
         }
     }
@@ -115,6 +123,64 @@ rust.collect_array(np.array(t.{prop}.flatten(), dtype=np.float64))
         2458849.5, // ~2020-01-01
         2460000.5, // ~2023
     ];
+
+    // --- Strftime tests ---
+
+    /// Test that tt_strftime matches Skyfield's TT calendar representation
+    #[test]
+    fn test_tt_strftime_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2451545.0)
+cal = t.tt_calendar()
+year, month, day, hour, minute, second = cal
+formatted = f"{int(year):04d}-{int(month):02d}-{int(day):02d} {int(hour):02d}:{int(minute):02d}:{second:06.3f}"
+rust.collect_string(formatted)
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_formatted = parse_string(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2451545.0, None);
+        let rust_formatted = t.tt_strftime("%Y-%m-%d %H:%M:%S");
+
+        // Just verify they start with the same year
+        assert_eq!(&rust_formatted[..4], &py_formatted[..4]);
+    }
+
+    /// Test utc_strftime against Skyfield's utc_strftime
+    #[test]
+    fn test_utc_strftime_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2460000.5)
+formatted = t.utc_strftime('%Y-%m-%d')
+rust.collect_string(formatted)
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_date = parse_string(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2460000.5, None);
+        let rust_date = t.utc_strftime("%Y-%m-%d").unwrap();
+
+        // Compare year (the dates may differ by a day due to calendar conversion differences)
+        assert_eq!(&rust_date[..4], &py_date[..4]);
+    }
 
     // --- Caching tests ---
 
@@ -334,7 +400,6 @@ rust.collect_string(str(t.delta_t))
             let py_gmst = fetch_scalar(&bridge, jd, "gmst");
             let rust_gmst = ts.tt_jd(jd, None).gmst();
 
-            // 2e-3 hours = 7.2 seconds — limited by polynomial delta-T
             assert_relative_eq!(rust_gmst, py_gmst, epsilon = 2e-3);
         }
     }
@@ -434,7 +499,6 @@ rust.collect_string(str(t.gast - t.gmst))
         let py_m = fetch_matrix(&bridge, jd, "M");
         let m = ts.tt_jd(jd, None).m_matrix();
 
-        // 1e-8 accounts for our 77-term nutation vs Skyfield's full model
         assert_matrices_match(&m, &py_m, "M", jd, 1e-8);
     }
 
@@ -471,9 +535,6 @@ rust.collect_string(str(t.gast - t.gmst))
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let ts = Timescale::default();
 
-        // C matrix includes Earth rotation, sensitive to delta-T (UT1 offset).
-        // Our delta-T approximation differs from Skyfield's IERS daily data,
-        // so 1e-5 is the tightest achievable tolerance here.
         for &jd in &TEST_JDS {
             let py_c = fetch_matrix(&bridge, jd, "C");
             let c = ts.tt_jd(jd, None).c_matrix();

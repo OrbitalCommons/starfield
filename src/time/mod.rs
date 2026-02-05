@@ -930,6 +930,91 @@ impl Time {
         }
     }
 
+    /// Format this time's UTC representation using strftime-style format string
+    ///
+    /// Supported specifiers: `%Y` (4-digit year), `%m` (month 01-12),
+    /// `%d` (day 01-31), `%H` (hour 00-23), `%M` (minute 00-59),
+    /// `%S` (second 00-60), `%f` (fractional seconds, 6 digits),
+    /// `%j` (day of year 001-366), `%%` (literal %).
+    pub fn utc_strftime(&self, format: &str) -> Result<String> {
+        let cal = self.utc_calendar()?;
+        Ok(Self::strftime_cal(&cal, format))
+    }
+
+    /// Format this time's TT representation using strftime-style format string
+    pub fn tt_strftime(&self, format: &str) -> String {
+        let cal = self.tt_calendar();
+        Self::strftime_cal(&cal, format)
+    }
+
+    /// Format this time's TDB representation using strftime-style format string
+    pub fn tdb_strftime(&self, format: &str) -> String {
+        let cal = self.tdb_calendar();
+        Self::strftime_cal(&cal, format)
+    }
+
+    /// Format this time's TAI representation using strftime-style format string
+    pub fn tai_strftime(&self, format: &str) -> String {
+        let cal = self.tai_calendar();
+        Self::strftime_cal(&cal, format)
+    }
+
+    /// Format this time's UT1 representation using strftime-style format string
+    pub fn ut1_strftime(&self, format: &str) -> String {
+        let cal = self.ut1_calendar();
+        Self::strftime_cal(&cal, format)
+    }
+
+    /// Apply strftime-style formatting to a calendar tuple
+    fn strftime_cal(cal: &CalendarTuple, format: &str) -> String {
+        let second_int = cal.second.floor() as u32;
+        let microseconds = ((cal.second - second_int as f64) * 1_000_000.0).round() as u32;
+
+        let day_of_year = Self::day_of_year(cal.year, cal.month, cal.day);
+
+        let mut result = String::with_capacity(format.len() * 2);
+        let mut chars = format.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '%' {
+                match chars.next() {
+                    Some('Y') => result.push_str(&format!("{:04}", cal.year)),
+                    Some('m') => result.push_str(&format!("{:02}", cal.month)),
+                    Some('d') => result.push_str(&format!("{:02}", cal.day)),
+                    Some('H') => result.push_str(&format!("{:02}", cal.hour)),
+                    Some('M') => result.push_str(&format!("{:02}", cal.minute)),
+                    Some('S') => result.push_str(&format!("{:02}", second_int)),
+                    Some('f') => result.push_str(&format!("{:06}", microseconds)),
+                    Some('j') => result.push_str(&format!("{:03}", day_of_year)),
+                    Some('%') => result.push('%'),
+                    Some(other) => {
+                        result.push('%');
+                        result.push(other);
+                    }
+                    None => result.push('%'),
+                }
+            } else {
+                result.push(c);
+            }
+        }
+
+        result
+    }
+
+    /// Compute day of year (1-366) from calendar date
+    fn day_of_year(year: i32, month: u32, day: u32) -> u32 {
+        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        let days_in_months = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let mut doy: u32 = day;
+        for m in 1..month {
+            doy += days_in_months[m as usize];
+        }
+        if is_leap && month > 2 {
+            doy += 1;
+        }
+        doy
+    }
+
     /// Get the TAI (International Atomic Time) as Julian date
     pub fn tai(&self) -> f64 {
         if let Some(tai_fraction) = self.tai_fraction {
@@ -1420,5 +1505,63 @@ mod tests {
             delta_t > 60.0 && delta_t < 80.0,
             "delta_t(2020) = {delta_t}"
         );
+    }
+
+    #[test]
+    fn test_tt_strftime_basic() {
+        let ts = Timescale::default();
+        let t = ts.tt_jd(J2000, None);
+
+        let cal = t.tt_calendar();
+        // J2000 = 2000-01-01 12:00:00 TT
+        assert_eq!(cal.year, 2000);
+
+        let formatted = t.tt_strftime("%Y-%m-%d %H:%M:%S");
+        assert!(formatted.starts_with("2000-"));
+    }
+
+    #[test]
+    fn test_strftime_specifiers() {
+        let cal = CalendarTuple {
+            year: 2024,
+            month: 3,
+            day: 15,
+            hour: 14,
+            minute: 30,
+            second: 45.123456,
+        };
+
+        let result = Time::strftime_cal(&cal, "%Y-%m-%d %H:%M:%S.%f");
+        assert_eq!(result, "2024-03-15 14:30:45.123456");
+
+        let result2 = Time::strftime_cal(&cal, "%j");
+        assert_eq!(result2, "075"); // March 15 = day 75 (31+29+15, 2024 is leap)
+
+        let result3 = Time::strftime_cal(&cal, "%%");
+        assert_eq!(result3, "%");
+    }
+
+    #[test]
+    fn test_day_of_year() {
+        // Jan 1 = day 1
+        assert_eq!(Time::day_of_year(2024, 1, 1), 1);
+        // Feb 29 in leap year
+        assert_eq!(Time::day_of_year(2024, 2, 29), 60);
+        // Dec 31 in leap year
+        assert_eq!(Time::day_of_year(2024, 12, 31), 366);
+        // Dec 31 in non-leap year
+        assert_eq!(Time::day_of_year(2023, 12, 31), 365);
+    }
+
+    #[test]
+    fn test_per_scale_strftime() {
+        let ts = Timescale::default();
+        let t = ts.tt_jd(J2000, None);
+
+        // All these should produce some output without panicking
+        let _tt = t.tt_strftime("%Y-%m-%d");
+        let _tai = t.tai_strftime("%Y-%m-%d");
+        let _tdb = t.tdb_strftime("%Y-%m-%d");
+        let _ut1 = t.ut1_strftime("%Y-%m-%d");
     }
 }
