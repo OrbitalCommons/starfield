@@ -46,9 +46,9 @@ fn main() {
 }
 ```
 
-## Command Line Tool
+## Command Line Tools
 
-The package includes a simple command-line tool for analyzing star catalogs:
+The package includes command-line tools for working with star catalogs:
 
 ```bash
 # Basic catalog statistics
@@ -56,6 +56,12 @@ cargo stats --catalog hipparcos --operation stats
 
 # Filter a catalog by magnitude and save it
 cargo stats --catalog hipparcos --operation filter --magnitude 6.0 --output bright_stars.bin
+
+# Download Gaia catalog data
+cargo run --example gaia_downloader -- --download 1
+
+# Filter Gaia data by magnitude and export to binary format
+cargo run --example gaia_filter -- --input /path/to/gaia_file.csv.gz --output filtered_stars.bin --magnitude 18.0
 ```
 
 ## Python Interoperability
