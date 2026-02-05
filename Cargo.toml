@@ -1,10 +1,10 @@
 [package]
 name = "starfield"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 authors = ["Matthew Goodman"]
 description = "Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms (inspired by skyfield)"
-repository = "https://github.com/meawoppl/starfield"
+repository = "https://github.com/OrbitalCommons/starfield"
 license = "MIT"
 readme = "README.md"
 keywords = ["astronomy", "catalog", "stars", "celestial", "skyfield"]
