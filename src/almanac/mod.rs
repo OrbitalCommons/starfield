@@ -69,7 +69,7 @@ fn body_ecliptic_longitude(kernel: &mut SpiceKernel, target: &str, jd_tdb: &[f64
             let earth = kernel.at("earth", &t).unwrap();
             let astro = earth.observe(target, kernel, &t).unwrap();
             let app = astro.apparent(kernel, &t).unwrap();
-            let (lon, _lat, _dist) = app.ecliptic_latlon();
+            let (lon, _lat, _dist) = app.ecliptic_latlon(&t);
             lon
         })
         .collect()
@@ -129,11 +129,11 @@ pub fn moon_phase_angle(kernel: &mut SpiceKernel, jd_tdb: &[f64]) -> Vec<f64> {
 
             let sun_astro = earth.observe("sun", kernel, &t).unwrap();
             let sun_app = sun_astro.apparent(kernel, &t).unwrap();
-            let (sun_lon, _, _) = sun_app.ecliptic_latlon();
+            let (sun_lon, _, _) = sun_app.ecliptic_latlon(&t);
 
             let moon_astro = earth.observe("moon", kernel, &t).unwrap();
             let moon_app = moon_astro.apparent(kernel, &t).unwrap();
-            let (moon_lon, _, _) = moon_app.ecliptic_latlon();
+            let (moon_lon, _, _) = moon_app.ecliptic_latlon(&t);
 
             let mut phase = moon_lon - sun_lon;
             if phase < 0.0 {
@@ -383,11 +383,11 @@ pub fn oppositions_conjunctions<'a>(
 
                 let sun_astro = earth.observe("sun", kernel, &t).unwrap();
                 let sun_app = sun_astro.apparent(kernel, &t).unwrap();
-                let (sun_lon, _, _) = sun_app.ecliptic_latlon();
+                let (sun_lon, _, _) = sun_app.ecliptic_latlon(&t);
 
                 let target_astro = earth.observe(&target, kernel, &t).unwrap();
                 let target_app = target_astro.apparent(kernel, &t).unwrap();
-                let (target_lon, _, _) = target_app.ecliptic_latlon();
+                let (target_lon, _, _) = target_app.ecliptic_latlon(&t);
 
                 let mut diff = target_lon - sun_lon;
                 if diff < 0.0 {
