@@ -36,6 +36,7 @@ log = "0.4"
 term_size = "0.3" # Terminal dimensions detection
 chrono = "0.4.40"
 base64 = "0.22.1"
+indicatif = "0.17.11"  # Progress bars and indicators
 
 # Image processing
 image = "0.24"
