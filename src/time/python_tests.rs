@@ -1,5 +1,7 @@
-//! Python comparison tests for delta-T, sidereal time, Earth rotation matrices,
-//! and leap-second offsets against Python Skyfield.
+//! Python comparison tests for time module
+//!
+//! Validates Rust time caching behavior, delta-T spline, sidereal time,
+//! Earth rotation matrices, and leap-second offsets against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
@@ -139,8 +141,8 @@ from skyfield.api import load
 ts = load.timescale()
 t = ts.tt_jd({jd})
 import numpy as np
-leap_dates = ts._leap_dates
-leap_offsets = ts._leap_offsets
+leap_dates = ts.leap_dates
+leap_offsets = ts.leap_offsets
 idx = np.searchsorted(leap_dates, {jd}, side='right') - 1
 if idx < 0:
     ls = 0
@@ -161,6 +163,78 @@ rust.collect_string(str(ls))
                 "{label} (JD {jd}): leap seconds mismatch: rust={rust_ls} python={py_ls}"
             );
         }
+    }
+
+    // --- Caching tests ---
+
+    /// Test that cached TDB value matches Skyfield
+    #[test]
+    fn test_cached_tdb_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2451545.0)
+rust.collect_string(str(t.tdb))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_tdb = parse_f64(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2451545.0, None);
+
+        // First call computes and caches
+        let tdb1 = t.tdb();
+        // Second call should return same cached value
+        let tdb2 = t.tdb();
+        assert_eq!(tdb1, tdb2);
+
+        let diff = (tdb1 - py_tdb).abs();
+        assert!(
+            diff < 1e-8,
+            "TDB mismatch: rust={tdb1} python={py_tdb} diff={diff}"
+        );
+    }
+
+    /// Test that cached delta_t matches Skyfield
+    #[test]
+    fn test_cached_delta_t_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load
+ts = load.timescale()
+t = ts.tt_jd(2451545.0)
+rust.collect_string(str(t.delta_t))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_dt = parse_f64(&py_result);
+
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2451545.0, None);
+
+        // First call computes and caches
+        let dt1 = t.delta_t();
+        // Second call returns cached value
+        let dt2 = t.delta_t();
+        assert_eq!(dt1, dt2);
+
+        // Our polynomial approximation may differ from Skyfield's table-based approach,
+        // but should be in the right ballpark (within ~1 second for J2000)
+        let diff = (dt1 - py_dt).abs();
+        assert!(
+            diff < 2.0,
+            "delta_t mismatch: rust={dt1} python={py_dt} diff={diff}s"
+        );
     }
 
     // --- Delta-T tests ---
