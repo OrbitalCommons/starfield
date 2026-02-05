@@ -23,6 +23,7 @@ use nalgebra::Vector3;
 use std::f64::consts::PI;
 
 use crate::constants::{AU_KM, C_AUDAY, DAY_S};
+use crate::framelib::inertial::{Ecliptic, Equatorial};
 use crate::jplephem::kernel::SpiceKernel;
 use crate::jplephem::spk::jd_to_seconds;
 use crate::relativity::{add_aberration, add_deflection, rmass, DEFLECTORS};
@@ -281,6 +282,23 @@ impl Position {
         let b = other.position.normalize();
         let dot = a.dot(&b).clamp(-1.0, 1.0);
         dot.acos()
+    }
+
+    /// Compute ecliptic longitude and latitude of this position.
+    ///
+    /// Returns `(longitude_radians, latitude_radians, distance_au)`.
+    /// Longitude is in [0, 2*PI), latitude in [-PI/2, PI/2].
+    pub fn ecliptic_latlon(&self) -> (f64, f64, f64) {
+        let eq = Equatorial::new(
+            self.position.y.atan2(self.position.x),
+            (self.position.z / self.position.norm()).asin(),
+        );
+        let ec: Ecliptic = eq.into();
+        let mut lon = ec.lon;
+        if lon < 0.0 {
+            lon += 2.0 * PI;
+        }
+        (lon, ec.lat, self.position.norm())
     }
 }
 

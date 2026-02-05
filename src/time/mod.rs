@@ -8,7 +8,6 @@ use crate::constants::{DAY_S, GREGORIAN_START, J2000, TAU, TT_MINUS_TAI, TT_MINU
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 use nalgebra::Matrix3;
 use std::cell::Cell;
-use std::f64::consts::PI;
 use std::fmt;
 use std::ops::{Add, Sub};
 use thiserror::Error;
@@ -1282,22 +1281,13 @@ impl Time {
 
     /// Get the ICRS → ITRS rotation matrix C
     ///
-    /// C = R_z(equation_of_origins) × M
+    /// C = R_z(-GAST) × M
     ///
-    /// Where equation_of_origins = ERA - GAST, which rotates from the
-    /// true equinox of date to the Celestial Intermediate Origin (CIO),
-    /// then applies Earth rotation.
+    /// GCRS → ITRS rotation, following the equinox-based approach
+    /// (Skyfield's TIRS frame). GAST in hours is converted to radians.
     pub fn c_matrix(&self) -> Matrix3<f64> {
-        let ut1_jd = self.ut1();
-        let ut1_whole = ut1_jd.floor();
-        let ut1_frac = ut1_jd - ut1_whole;
-        let era = crate::earthlib::earth_rotation_angle(ut1_whole, ut1_frac);
+        let angle = -self.gast() * TAU / 24.0;
 
-        // Equation of Origins in cycles
-        let eq_origins = era - self.gast() / 24.0;
-        let angle = 2.0 * PI * eq_origins;
-
-        // R_z(angle)
         let (s, c) = angle.sin_cos();
         #[rustfmt::skip]
         let r = Matrix3::new(
