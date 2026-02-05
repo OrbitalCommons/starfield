@@ -19,7 +19,7 @@
 //! let (ra, dec, dist) = mars_apparent.radec(None);
 //! ```
 
-use nalgebra::Vector3;
+use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 
 use crate::constants::{AU_KM, C_AUDAY, DAY_S};
@@ -282,6 +282,44 @@ impl Position {
         let dot = a.dot(&b).clamp(-1.0, 1.0);
         dot.acos()
     }
+
+    /// Compute ecliptic longitude and latitude in the true ecliptic of date.
+    ///
+    /// Matches Skyfield's `frame_latlon(ecliptic_frame)`:
+    /// `R_x(-true_obliquity) × M × position`
+    ///
+    /// Returns `(longitude_radians, latitude_radians, distance_au)`.
+    /// Longitude is in [0, 2*PI), latitude in [-PI/2, PI/2].
+    pub fn ecliptic_latlon(&self, t: &Time) -> (f64, f64, f64) {
+        let ecliptic_matrix = build_ecliptic_matrix(t);
+        let ec_pos = ecliptic_matrix * self.position;
+        let r = ec_pos.norm();
+        let mut lon = ec_pos.y.atan2(ec_pos.x);
+        let lat = (ec_pos.z / r).asin();
+        if lon < 0.0 {
+            lon += 2.0 * PI;
+        }
+        (lon, lat, r)
+    }
+}
+
+/// Build the ecliptic rotation matrix for the true ecliptic of date.
+///
+/// `R_x(-true_obliquity) × M`, matching Skyfield's `build_ecliptic_matrix(t)`.
+fn build_ecliptic_matrix(t: &Time) -> Matrix3<f64> {
+    let mean_obliq = crate::nutationlib::mean_obliquity(t.tdb());
+    let (_d_psi, d_eps) = crate::nutationlib::iau2000a_nutation(t.tt());
+    let true_obliq = mean_obliq + d_eps;
+
+    let (s, c) = (-true_obliq).sin_cos();
+    #[rustfmt::skip]
+    let rx = Matrix3::new(
+        1.0, 0.0, 0.0,
+        0.0,   c,  -s,
+        0.0,   s,   c,
+    );
+
+    rx * t.m_matrix()
 }
 
 impl std::fmt::Display for Position {

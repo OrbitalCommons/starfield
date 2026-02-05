@@ -598,25 +598,56 @@ rust.collect_string(str(t.gast - t.gmst))
         }
     }
 
+    /// Compare c_matrix against Skyfield's ITRS frame rotation
+    ///
+    /// Our c_matrix is the GCRS→ITRS rotation: R_z(-GAST×τ/24) × M,
+    /// which matches `framelib.itrs.rotation_at(t)` — NOT `t.C` (CIRS).
     #[test]
     fn test_c_matrix_at_multiple_dates_vs_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let ts = Timescale::default();
         for &jd in &TEST_JDS {
-            let py_c = fetch_matrix(&bridge, jd, "C");
+            let py_result = bridge
+                .run_py_to_json(&format!(
+                    r#"
+import numpy as np
+from skyfield.api import load
+from skyfield.framelib import itrs
+ts = load.timescale()
+t = ts.tt_jd({jd})
+rust.collect_array(np.array(itrs.rotation_at(t).flatten(), dtype=np.float64))
+"#
+                ))
+                .unwrap_or_else(|e| panic!("Python failed for ITRS at JD {jd}: {e}"));
+            let py_c = parse_f64_array(&py_result);
             let c = ts.tt_jd(jd, None).c_matrix();
-            assert_matrices_match(&c, &py_c, "C", jd, 1e-5);
+            // Tolerance: 1e-4 — UT1-UTC approximation drifts slightly from Skyfield
+            assert_matrices_match(&c, &py_c, "C(ITRS)", jd, 1e-4);
         }
     }
 
+    /// Compare ct_matrix against transpose of Skyfield's ITRS frame rotation
     #[test]
     fn test_ct_matrix_at_multiple_dates_vs_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let ts = Timescale::default();
         for &jd in &TEST_JDS {
-            let py_ct = fetch_matrix(&bridge, jd, "CT");
+            let py_result = bridge
+                .run_py_to_json(&format!(
+                    r#"
+import numpy as np
+from skyfield.api import load
+from skyfield.framelib import itrs
+ts = load.timescale()
+t = ts.tt_jd({jd})
+rust.collect_array(np.array(itrs.rotation_at(t).T.flatten(), dtype=np.float64))
+"#
+                ))
+                .unwrap_or_else(|e| panic!("Python failed for ITRS.T at JD {jd}: {e}"));
+            let py_ct = parse_f64_array(&py_result);
             let ct = ts.tt_jd(jd, None).ct_matrix();
-            assert_matrices_match(&ct, &py_ct, "CT", jd, 1e-5);
+            // Tolerance: 1e-4 — UT1-UTC approximation drifts slightly from Skyfield
+            assert_matrices_match(&ct, &py_ct, "CT(ITRS)", jd, 1e-4);
         }
     }
 

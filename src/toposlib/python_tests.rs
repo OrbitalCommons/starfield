@@ -1,43 +1,20 @@
 //! Python comparison tests for toposlib
 //!
 //! Validates Rust geographic positions, ITRS coordinates, observer barycentric
-//! positions, altaz coordinates, and local sidereal time against Python Skyfield.
+//! positions, altaz coordinates, local sidereal time, and atmospheric refraction
+//! against Python Skyfield.
 
 #[cfg(test)]
 mod tests {
-    use crate::jplephem::kernel::SpiceKernel;
     use crate::pybridge::bridge::PyRustBridge;
-    use crate::pybridge::helpers::PythonResult;
+    use crate::pybridge::test_utils::{de421_kernel, parse_f64, parse_f64_triple};
     use crate::time::Timescale;
-    use crate::toposlib::{IERS2010, WGS84};
+    use crate::toposlib::WGS84;
     use approx::assert_relative_eq;
-
-    fn parse_f64(result: &str) -> f64 {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => s.parse::<f64>().expect("Failed to parse f64"),
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn parse_f64_triple(result: &str) -> (f64, f64, f64) {
-        let parsed = PythonResult::try_from(result).expect("Failed to parse Python result");
-        match parsed {
-            PythonResult::String(s) => {
-                let parts: Vec<f64> = s.split(',').map(|p| p.trim().parse().unwrap()).collect();
-                (parts[0], parts[1], parts[2])
-            }
-            _ => panic!("Expected String result, got {:?}", parsed),
-        }
-    }
-
-    fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
-    }
 
     // --- ITRS position tests ---
 
-    /// Test that our geodetic-to-ITRS conversion matches Skyfield
+    /// Geodetic-to-ITRS conversion at five locations spanning the globe
     #[test]
     fn test_itrs_xyz_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -64,36 +41,34 @@ rust.collect_string(f"{{x}},{{y}},{{z}}")
                 .unwrap_or_else(|e| panic!("Python failed for {label}: {e}"));
 
             let (py_x, py_y, py_z) = parse_f64_triple(&py_result);
-
             let rust_pos = WGS84.latlon(lat, lon, elev);
 
-            assert_relative_eq!(rust_pos.itrs_xyz.x, py_x, epsilon = 1e-12,);
-            assert_relative_eq!(rust_pos.itrs_xyz.y, py_y, epsilon = 1e-12,);
-            assert_relative_eq!(rust_pos.itrs_xyz.z, py_z, epsilon = 1e-12,);
+            assert_relative_eq!(rust_pos.itrs_xyz.x, py_x, epsilon = 1e-12);
+            assert_relative_eq!(rust_pos.itrs_xyz.y, py_y, epsilon = 1e-12);
+            assert_relative_eq!(rust_pos.itrs_xyz.z, py_z, epsilon = 1e-12);
         }
     }
 
     // --- Observer barycentric position tests ---
 
-    /// Test that observer barycentric position is close to Earth's
+    /// Observer barycentric position should match Skyfield within ~10 meters
     #[test]
-    fn test_observer_geocentric_offset_matches_skyfield() {
+    fn test_observer_barycentric_position_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
         let t = ts.tdb_jd(2451545.0);
 
-        // Skyfield: get geocentric offset of Boston observer
         let py_result = bridge
             .run_py_to_json(
                 r#"
 from skyfield.api import load, wgs84
 ts = load.timescale()
+eph = load('de421.bsp')
 t = ts.tdb_jd(2451545.0)
 boston = wgs84.latlon(42.3583, -71.0603, elevation_m=43.0)
-geo = boston.at(t)
-# Geocentric position in AU
-x, y, z = geo.position.au
+observer = (eph['earth'] + boston).at(t)
+x, y, z = observer.position.au
 rust.collect_string(f"{x},{y},{z}")
 "#,
             )
@@ -104,7 +79,7 @@ rust.collect_string(f"{x},{y},{z}")
         let boston = WGS84.latlon(42.3583, -71.0603, 43.0);
         let observer = boston.at(&t, &mut kernel).unwrap();
 
-        // Compare absolute positions (should match to ~1 meter)
+        // Tolerance: 10 meters — differences from UT1-UTC approximation
         let diff_x = (observer.position.x - py_x).abs() * crate::constants::AU_M;
         let diff_y = (observer.position.y - py_y).abs() * crate::constants::AU_M;
         let diff_z = (observer.position.z - py_z).abs() * crate::constants::AU_M;
@@ -114,9 +89,47 @@ rust.collect_string(f"{x},{y},{z}")
         assert!(diff_z < 10.0, "Z offset mismatch: {diff_z} m");
     }
 
+    /// Observer barycentric velocity magnitude matches Skyfield
+    #[test]
+    fn test_observer_velocity_magnitude_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let mut kernel = de421_kernel();
+        let ts = Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load, wgs84
+import numpy as np
+ts = load.timescale()
+eph = load('de421.bsp')
+t = ts.tdb_jd(2451545.0)
+equator = wgs84.latlon(0.0, 0.0, elevation_m=0.0)
+observer = (eph['earth'] + equator).at(t)
+vx, vy, vz = observer.velocity.au_per_d
+speed = np.sqrt(vx**2 + vy**2 + vz**2)
+rust.collect_string(str(speed))
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let py_speed = parse_f64(&py_result);
+
+        let equator = WGS84.latlon(0.0, 0.0, 0.0);
+        let observer = equator.at(&t, &mut kernel).unwrap();
+        let rust_speed = observer.velocity.norm();
+
+        // Tolerance: 0.1% — includes Earth orbital + rotation velocity
+        assert!(
+            (rust_speed - py_speed).abs() / py_speed < 0.001,
+            "Velocity magnitude mismatch: rust={rust_speed} py={py_speed} AU/day"
+        );
+    }
+
     // --- Altaz tests ---
 
-    /// Test alt/az of Mars from Boston matches Skyfield
+    /// Alt/az of Mars from Boston at J2000
     #[test]
     fn test_altaz_mars_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -149,8 +162,7 @@ rust.collect_string(f"{alt.degrees},{az.degrees},{dist.au}")
         let mars_app = mars_astro.apparent(&mut kernel, &t).unwrap();
         let (rust_alt, rust_az, rust_dist) = boston.altaz(&mars_app, &t);
 
-        // Altitude and azimuth should match within ~0.1 degrees
-        // (small differences expected due to UT1-UTC, nutation model details)
+        // Tolerance 0.5° — small differences from UT1-UTC, nutation model
         assert!(
             (rust_alt - py_alt).abs() < 0.5,
             "Altitude mismatch: rust={rust_alt} python={py_alt} diff={}°",
@@ -167,13 +179,13 @@ rust.collect_string(f"{alt.degrees},{az.degrees},{dist.au}")
         );
     }
 
-    /// Test alt/az of Jupiter from Sydney
+    /// Alt/az of Jupiter from Sydney at ~2009
     #[test]
     fn test_altaz_jupiter_sydney_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
-        let t = ts.tdb_jd(2455000.5); // ~2009
+        let t = ts.tdb_jd(2455000.5);
 
         let py_result = bridge
             .run_py_to_json(
@@ -218,7 +230,7 @@ rust.collect_string(f"{alt.degrees},{az.degrees},{dist.au}")
 
     // --- RA/Dec tests ---
 
-    /// Test that topocentric RA/Dec of Mars matches Skyfield
+    /// Topocentric RA/Dec of Mars from Boston
     #[test]
     fn test_radec_mars_topocentric_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -252,7 +264,7 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
         let mars_app = mars_astro.apparent(&mut kernel, &t).unwrap();
         let (rust_ra_h, rust_dec, rust_dist) = mars_app.radec(None);
 
-        // RA should match within ~1 arcsecond = 0.067 seconds of time = 0.004h
+        // Tolerance: ~1 arcsecond = 0.004h RA, 0.0003° Dec
         assert!(
             (rust_ra_h - py_ra_h).abs() < 0.01,
             "RA mismatch: rust={rust_ra_h}h python={py_ra_h}h diff={}h",
@@ -271,7 +283,7 @@ rust.collect_string(f"{ra._degrees},{dec.degrees},{dist.au}")
 
     // --- Local sidereal time tests ---
 
-    /// Test that LST matches Skyfield's lst_hours_at
+    /// LST at Boston matches Skyfield
     #[test]
     fn test_lst_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -292,7 +304,6 @@ rust.collect_string(str(lst))
             .expect("Failed to run Python code");
 
         let py_lst = parse_f64(&py_result);
-
         let boston = WGS84.latlon(42.3583, -71.0603, 43.0);
         let rust_lst = boston.lst_hours(&t);
 
@@ -303,12 +314,12 @@ rust.collect_string(str(lst))
         );
     }
 
-    /// Test LST at multiple longitudes
+    /// LST varies correctly with longitude
     #[test]
     fn test_lst_multiple_longitudes_match_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let ts = Timescale::default();
-        let t = ts.tdb_jd(2458000.5); // ~2017
+        let t = ts.tdb_jd(2458000.5);
 
         let longitudes = [0.0, 90.0, -90.0, 180.0, -45.0, 139.65];
 
@@ -327,7 +338,6 @@ rust.collect_string(str(lst))
                 .unwrap_or_else(|e| panic!("Python failed for lon={lon}: {e}"));
 
             let py_lst = parse_f64(&py_result);
-
             let pos = WGS84.latlon(0.0, lon, 0.0);
             let rust_lst = pos.lst_hours(&t);
 
@@ -340,7 +350,7 @@ rust.collect_string(str(lst))
 
     // --- Refraction tests ---
 
-    /// Test atmospheric refraction matches standard values
+    /// Atmospheric refraction matches standard values from Bennett formula
     #[test]
     fn test_refraction_standard_values() {
         // At horizon: ~34 arcmin ≈ 0.567°
@@ -354,5 +364,42 @@ rust.collect_string(str(lst))
         // At 10°: ~5 arcmin ≈ 0.083°
         let r10 = crate::toposlib::GeographicPosition::refract(10.0, 10.0, 1010.0);
         assert!(r10 > 0.05 && r10 < 0.15, "10° refraction {r10}");
+    }
+
+    /// Observer near the north pole produces valid barycentric position
+    #[test]
+    fn test_observer_near_pole_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let mut kernel = de421_kernel();
+        let ts = Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.api import load, wgs84
+ts = load.timescale()
+eph = load('de421.bsp')
+t = ts.tdb_jd(2451545.0)
+pole = wgs84.latlon(89.99, 0.0, elevation_m=0.0)
+observer = (eph['earth'] + pole).at(t)
+x, y, z = observer.position.au
+rust.collect_string(f"{x},{y},{z}")
+"#,
+            )
+            .expect("Failed to run Python code");
+
+        let (py_x, py_y, py_z) = parse_f64_triple(&py_result);
+
+        let pole = WGS84.latlon(89.99, 0.0, 0.0);
+        let observer = pole.at(&t, &mut kernel).unwrap();
+
+        let diff_x = (observer.position.x - py_x).abs() * crate::constants::AU_M;
+        let diff_y = (observer.position.y - py_y).abs() * crate::constants::AU_M;
+        let diff_z = (observer.position.z - py_z).abs() * crate::constants::AU_M;
+
+        assert!(diff_x < 10.0, "Pole X offset: {diff_x} m");
+        assert!(diff_y < 10.0, "Pole Y offset: {diff_y} m");
+        assert!(diff_z < 10.0, "Pole Z offset: {diff_z} m");
     }
 }

@@ -13,6 +13,7 @@
 
 pub mod bridge;
 pub mod helpers;
+pub mod test_utils;
 
 // Re-export main components
 pub use bridge::PyRustBridge;

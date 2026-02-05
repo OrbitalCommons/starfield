@@ -33,13 +33,13 @@ pub const DEFAULT_NUM: usize = 12;
 pub fn find_discrete<F>(
     jd_start: f64,
     jd_end: f64,
-    f: &F,
+    f: &mut F,
     step_days: f64,
     epsilon: f64,
     num: usize,
 ) -> Vec<(f64, i64)>
 where
-    F: Fn(&[f64]) -> Vec<i64>,
+    F: FnMut(&[f64]) -> Vec<i64>,
 {
     assert!(
         jd_start < jd_end,
@@ -51,9 +51,9 @@ where
     find_discrete_core(&jd, f, epsilon, num)
 }
 
-fn find_discrete_core<F>(initial_jd: &[f64], f: &F, epsilon: f64, num: usize) -> Vec<(f64, i64)>
+fn find_discrete_core<F>(initial_jd: &[f64], f: &mut F, epsilon: f64, num: usize) -> Vec<(f64, i64)>
 where
-    F: Fn(&[f64]) -> Vec<i64>,
+    F: FnMut(&[f64]) -> Vec<i64>,
 {
     let end_mask = linspace(0.0, 1.0, num);
     let start_mask: Vec<f64> = end_mask.iter().copied().rev().collect();
@@ -246,7 +246,7 @@ fn choose_brackets(y: &[f64]) -> (Vec<usize>, Vec<usize>) {
         left.push(idx);
         left.push(idx + 1);
     }
-    left = remove_adjacent_duplicates_usize(&left);
+    left = remove_adjacent_duplicates(&left);
 
     let right: Vec<usize> = left.iter().map(|&l| l + 1).collect();
     (left, right)
@@ -330,20 +330,8 @@ fn diff_sign_diff(y: &[f64]) -> Vec<i32> {
     sign_diff.windows(2).map(|w| w[1] - w[0]).collect()
 }
 
-fn remove_adjacent_duplicates(a: &[f64]) -> Vec<f64> {
-    if a.is_empty() {
-        return Vec::new();
-    }
-    let mut result = vec![a[0]];
-    for i in 1..a.len() {
-        if a[i] != a[i - 1] {
-            result.push(a[i]);
-        }
-    }
-    result
-}
-
-fn remove_adjacent_duplicates_usize(a: &[usize]) -> Vec<usize> {
+/// Remove consecutive duplicate values from a sorted slice.
+fn remove_adjacent_duplicates<T: Copy + PartialEq>(a: &[T]) -> Vec<T> {
     if a.is_empty() {
         return Vec::new();
     }
@@ -381,7 +369,7 @@ mod tests {
     #[test]
     fn test_find_discrete_step_function() {
         // sign(sin(x)) transitions at multiples of pi
-        let f = |jd: &[f64]| -> Vec<i64> {
+        let mut f = |jd: &[f64]| -> Vec<i64> {
             jd.iter()
                 .map(|&x| {
                     let s = x.sin();
@@ -394,7 +382,7 @@ mod tests {
                 .collect()
         };
 
-        let results = find_discrete(0.1, 4.0 * PI, &f, 0.1, EPSILON_DISCRETE, DEFAULT_NUM);
+        let results = find_discrete(0.1, 4.0 * PI, &mut f, 0.1, EPSILON_DISCRETE, DEFAULT_NUM);
 
         // Should find transitions near pi, 2*pi, 3*pi
         assert!(
@@ -415,8 +403,8 @@ mod tests {
 
     #[test]
     fn test_find_discrete_no_transitions() {
-        let f = |jd: &[f64]| -> Vec<i64> { vec![1; jd.len()] };
-        let results = find_discrete(0.0, 10.0, &f, 1.0, EPSILON_DISCRETE, DEFAULT_NUM);
+        let mut f = |jd: &[f64]| -> Vec<i64> { vec![1; jd.len()] };
+        let results = find_discrete(0.0, 10.0, &mut f, 1.0, EPSILON_DISCRETE, DEFAULT_NUM);
         assert!(results.is_empty());
     }
 
