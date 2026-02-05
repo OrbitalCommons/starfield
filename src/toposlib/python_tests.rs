@@ -53,7 +53,7 @@ rust.collect_string(f"{{x}},{{y}},{{z}}")
 
     /// Observer barycentric position should match Skyfield within ~10 meters
     #[test]
-    fn test_observer_geocentric_offset_matches_skyfield() {
+    fn test_observer_barycentric_position_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
         let mut kernel = de421_kernel();
         let ts = Timescale::default();
@@ -64,10 +64,11 @@ rust.collect_string(f"{{x}},{{y}},{{z}}")
                 r#"
 from skyfield.api import load, wgs84
 ts = load.timescale()
+eph = load('de421.bsp')
 t = ts.tdb_jd(2451545.0)
 boston = wgs84.latlon(42.3583, -71.0603, elevation_m=43.0)
-geo = boston.at(t)
-x, y, z = geo.position.au
+observer = (eph['earth'] + boston).at(t)
+x, y, z = observer.position.au
 rust.collect_string(f"{x},{y},{z}")
 "#,
             )
@@ -88,7 +89,7 @@ rust.collect_string(f"{x},{y},{z}")
         assert!(diff_z < 10.0, "Z offset mismatch: {diff_z} m");
     }
 
-    /// Observer velocity magnitude should be physically reasonable (~0.46 km/s at equator)
+    /// Observer barycentric velocity magnitude matches Skyfield
     #[test]
     fn test_observer_velocity_magnitude_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -102,10 +103,11 @@ rust.collect_string(f"{x},{y},{z}")
 from skyfield.api import load, wgs84
 import numpy as np
 ts = load.timescale()
+eph = load('de421.bsp')
 t = ts.tdb_jd(2451545.0)
 equator = wgs84.latlon(0.0, 0.0, elevation_m=0.0)
-geo = equator.at(t)
-vx, vy, vz = geo.velocity.au_per_d
+observer = (eph['earth'] + equator).at(t)
+vx, vy, vz = observer.velocity.au_per_d
 speed = np.sqrt(vx**2 + vy**2 + vz**2)
 rust.collect_string(str(speed))
 "#,
@@ -118,7 +120,7 @@ rust.collect_string(str(speed))
         let observer = equator.at(&t, &mut kernel).unwrap();
         let rust_speed = observer.velocity.norm();
 
-        // Velocity should match within 0.1% — includes both Earth orbital and rotation
+        // Tolerance: 0.1% — includes Earth orbital + rotation velocity
         assert!(
             (rust_speed - py_speed).abs() / py_speed < 0.001,
             "Velocity magnitude mismatch: rust={rust_speed} py={py_speed} AU/day"
@@ -364,7 +366,7 @@ rust.collect_string(str(lst))
         assert!(r10 > 0.05 && r10 < 0.15, "10° refraction {r10}");
     }
 
-    /// Observer near the north pole produces valid position
+    /// Observer near the north pole produces valid barycentric position
     #[test]
     fn test_observer_near_pole_matches_skyfield() {
         let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
@@ -377,10 +379,11 @@ rust.collect_string(str(lst))
                 r#"
 from skyfield.api import load, wgs84
 ts = load.timescale()
+eph = load('de421.bsp')
 t = ts.tdb_jd(2451545.0)
 pole = wgs84.latlon(89.99, 0.0, elevation_m=0.0)
-geo = pole.at(t)
-x, y, z = geo.position.au
+observer = (eph['earth'] + pole).at(t)
+x, y, z = observer.position.au
 rust.collect_string(f"{x},{y},{z}")
 "#,
             )

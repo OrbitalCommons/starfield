@@ -1279,12 +1279,12 @@ impl Time {
         self.m_matrix().transpose()
     }
 
-    /// Get the ICRS → ITRS rotation matrix C
+    /// Get the GCRS → ITRS rotation matrix
     ///
-    /// C = R_z(-GAST) × M
+    /// `R_z(-GAST × τ/24) × M`
     ///
-    /// GCRS → ITRS rotation, following the equinox-based approach
-    /// (Skyfield's TIRS frame). GAST in hours is converted to radians.
+    /// This is Skyfield's `itrs.rotation_at(t)`: Earth's full rotation
+    /// (precession + nutation + daily sidereal rotation).
     pub fn c_matrix(&self) -> Matrix3<f64> {
         let angle = -self.gast() * TAU / 24.0;
 
