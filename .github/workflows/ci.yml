@@ -2,9 +2,9 @@ name: Rust CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -23,42 +23,80 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
-      
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "starfield-build-cache"
-      
+
       - name: Check formatting
         run: cargo fmt -- --check
-        
+
       - name: Run clippy
         run: cargo clippy -- -D warnings
-      
-      - name: Run tests
+
+      - name: Run standard tests
         run: cargo test
-        
-  build:
-    name: Build
+
+  python-comparison:
+    name: Python Comparison Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      
+
+      - name: Install Python and Skyfield
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install Skyfield
+        run: |
+          pip install skyfield==1.53
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "starfield-build-cache"
-      
+
+      - name: Run Python comparison tests
+        run: |
+          # Set Python environment variables for tests
+          export PYO3_PYTHON=$(which python)
+          export PYTHONPATH=$(pwd)
+          export PYTHON_SYS_EXECUTABLE=$(which python)
+          export PYTHON_COMMAND=$(which python)
+          
+          # Run tests with the python-tests feature flag
+          RUST_LOG=debug cargo test --features python-tests
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "starfield-build-cache"
+
       - name: Build
         run: cargo build --release
-        
+
       - name: Run examples
         run: |
           for example in $(cargo run --example 2>&1 | grep -oP '(?<=Available examples:).*' | tr -d ' ' | tr ',' '\n'); do

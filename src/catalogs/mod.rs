@@ -4,7 +4,7 @@
 //! including efficient binary formats for optimized storage and loading.
 //! It also provides an index of interesting astronomical features for targeting simulations.
 
-use crate::coordinates::RaDec;
+use crate::coordinates::Equatorial;
 
 pub mod binary_catalog;
 pub mod features;
@@ -42,7 +42,7 @@ pub struct StarData {
     /// Star identifier
     pub id: u64,
     /// Star position in right ascension and declination (in degrees)
-    pub position: RaDec,
+    pub position: Equatorial,
     /// Apparent magnitude (lower is brighter)
     pub magnitude: f64,
     /// Optional B-V color index for rendering
@@ -54,14 +54,14 @@ impl StarData {
     pub fn new(id: u64, ra_deg: f64, dec_deg: f64, magnitude: f64, b_v: Option<f64>) -> Self {
         Self {
             id,
-            position: RaDec::from_degrees(ra_deg, dec_deg),
+            position: Equatorial::from_degrees(ra_deg, dec_deg),
             magnitude,
             b_v,
         }
     }
 
-    /// Create a new star data structure with an existing RaDec position
-    pub fn with_position(id: u64, position: RaDec, magnitude: f64, b_v: Option<f64>) -> Self {
+    /// Create a new star data structure with an existing Equatorial position
+    pub fn with_position(id: u64, position: Equatorial, magnitude: f64, b_v: Option<f64>) -> Self {
         Self {
             id,
             position,
@@ -131,7 +131,7 @@ pub trait StarCatalog {
 
     /// Get stars within a circular field of view
     fn stars_in_field(&self, ra_deg: f64, dec_deg: f64, fov_deg: f64) -> Vec<StarData> {
-        let center = RaDec::from_degrees(ra_deg, dec_deg);
+        let center = Equatorial::from_degrees(ra_deg, dec_deg);
         let radius_rad = (fov_deg / 2.0).to_radians();
 
         // Get cosine of the radius for faster checks
@@ -163,7 +163,7 @@ pub enum CatalogSource {
 /// Get stars from the specified catalog source
 pub fn get_stars_in_window(
     source: CatalogSource,
-    position: RaDec,
+    position: Equatorial,
     fov_deg: f64,
 ) -> crate::Result<Vec<StarData>> {
     let ra_deg = position.ra_degrees();

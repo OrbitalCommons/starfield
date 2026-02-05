@@ -1,6 +1,6 @@
 # Starfield
 
-Star catalog and celestial mechanics calculations inspired by Skyfield.
+Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms inspired by Skyfield.
 
 ## Features
 
@@ -9,6 +9,7 @@ Star catalog and celestial mechanics calculations inspired by Skyfield.
 - Precession, nutation, and earth rotation calculations
 - Time and date handling for astronomical applications
 - Synthetic catalog generation for testing
+- Python interoperability for comparing results with Skyfield (optional)
 
 ## Installation
 
@@ -61,6 +62,52 @@ cargo run --example gaia_downloader -- --download 1
 
 # Filter Gaia data by magnitude and export to binary format
 cargo run --example gaia_filter -- --input /path/to/gaia_file.csv.gz --output filtered_stars.bin --magnitude 18.0
+```
+
+## Python Interoperability
+
+Starfield provides optional Python interoperability for comparing results with the Python Skyfield library:
+
+```bash
+# Enable Python comparison tests
+cargo test --features python-tests
+
+# Run example comparing Rust calculations with Skyfield
+cargo run --example skyfield_comparison --features python-tests
+```
+
+Example code using the Python bridge:
+
+```rust
+// This requires the python-tests feature to be enabled
+use starfield::pybridge::{PyRustBridge, PythonResult};
+use std::convert::TryFrom;
+
+fn compare_with_skyfield() -> anyhow::Result<()> {
+    // Create a bridge to Python
+    let bridge = PyRustBridge::new()?;
+    
+    // Run Python code and get the result
+    let python_code = r#"
+    from skyfield.api import load
+    ts = load.timescale()
+    t = ts.utc(2023, 8, 15, 12, 0, 0)
+    rust(t.tt)  # Return TT Julian Date
+    "#;
+    
+    let result_json = bridge.run_py_to_json(python_code)?;
+    let result = PythonResult::try_from(result_json.as_str())?;
+    
+    match result {
+        PythonResult::String(s) => {
+            println!("Skyfield result: {}", s);
+            // Compare with Rust calculation
+        },
+        _ => println!("Unexpected result type"),
+    }
+    
+    Ok(())
+}
 ```
 
 ## License

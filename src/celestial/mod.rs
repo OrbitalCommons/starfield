@@ -1,6 +1,6 @@
 //! Celestial body definitions and calculations
 
-use crate::coordinates::RaDec;
+use crate::coordinates::Equatorial;
 use crate::time::Time;
 use crate::Result;
 use nalgebra::Point3;
@@ -8,7 +8,7 @@ use nalgebra::Point3;
 /// A trait for objects that have a position in the sky
 pub trait CelestialObject {
     /// Get the position of the object at a specific time
-    fn position_at(&self, time: &Time) -> Result<RaDec>;
+    fn position_at(&self, time: &Time) -> Result<Equatorial>;
 }
 
 /// A celestial body in the solar system
@@ -31,10 +31,10 @@ impl CelestialBody {
 }
 
 impl CelestialObject for CelestialBody {
-    fn position_at(&self, _time: &Time) -> Result<RaDec> {
+    fn position_at(&self, _time: &Time) -> Result<Equatorial> {
         // For now, just return a fixed position
         // In a real implementation, we would calculate the position based on the time
-        Ok(RaDec::from_degrees(0.0, 0.0))
+        Ok(Equatorial::new(0.0, 0.0))
     }
 }
 

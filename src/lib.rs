@@ -16,15 +16,22 @@ pub mod data;
 pub mod earthlib;
 pub mod errors;
 pub mod framelib;
+pub mod image;
+pub mod jplephem;
 pub mod nutationlib;
 pub mod planetlib;
 pub mod positions;
 pub mod precessionlib;
+#[cfg(feature = "python-tests")]
+pub mod pybridge;
+pub mod relativity;
+pub mod searchlib;
 pub mod time;
 pub mod units;
 
 // Re-export commonly used types
-pub use coordinates::RaDec;
+pub use coordinates::Equatorial;
+pub use time::{CalendarTuple, Time, Timescale};
 
 /// Main error type for the starfield library
 #[derive(Debug, Error)]
@@ -43,6 +50,9 @@ pub enum StarfieldError {
 
     #[error("Object not found: {0}")]
     ObjectNotFound(String),
+
+    #[error("Ephemeris error: {0}")]
+    EphemerisError(#[from] jplephem::JplephemError),
 }
 
 /// Result type for starfield operations
@@ -126,10 +136,24 @@ impl Loader {
         catalogs::GaiaCatalog::create_synthetic()
     }
 
-    /// Load planetary ephemeris
-    pub fn load_ephemeris(&self) -> Result<planetlib::Ephemeris> {
-        // This is a placeholder until we implement proper ephemeris calculations
-        Ok(planetlib::Ephemeris::new())
+    /// Load a SPICE SPK/BSP ephemeris file
+    ///
+    /// Returns a SpiceKernel that can compute planetary positions.
+    pub fn load_spk<P: AsRef<Path>>(&self, path: P) -> Result<jplephem::SpiceKernel> {
+        Ok(jplephem::SpiceKernel::open(path)?)
+    }
+
+    /// Load planetary ephemeris from a BSP file
+    pub fn load_ephemeris<P: AsRef<Path>>(&self, path: P) -> Result<planetlib::Ephemeris> {
+        let kernel = jplephem::SpiceKernel::open(path)?;
+        Ok(planetlib::Ephemeris::from_kernel(kernel))
+    }
+
+    /// Load a timescale for time conversions
+    pub fn timescale(&self) -> time::Timescale {
+        // For now, we return a default timescale with basic data
+        // In the future, this could load delta_t data and leap second files
+        time::Timescale::default()
     }
 }
 

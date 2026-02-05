@@ -93,7 +93,7 @@ fn download_file<P: AsRef<Path>>(url: &str, path: P) -> Result<()> {
                 downloaded += n as u64;
 
                 // Print progress every 5MB
-                if downloaded % (5 * 1024 * 1024) == 0 {
+                if downloaded.is_multiple_of(5 * 1024 * 1024) {
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let speed = if elapsed > 0.0 {
                         downloaded as f64 / elapsed / 1024.0 / 1024.0

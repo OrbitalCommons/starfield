@@ -3,7 +3,7 @@
 //! This module provides a compact binary format for storing star catalogs with
 //! minimal fields (ID, position, magnitude), optimized for size and loading speed.
 
-use crate::coordinates::RaDec;
+use crate::coordinates::Equatorial;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -28,7 +28,7 @@ pub struct MinimalStar {
     /// Star identifier (usually from source catalog)
     pub id: u64,
     /// Position in right ascension and declination
-    pub position: RaDec,
+    pub position: Equatorial,
     /// Apparent magnitude
     pub magnitude: f64,
 }
@@ -39,13 +39,13 @@ impl MinimalStar {
     pub fn new(id: u64, ra_deg: f64, dec_deg: f64, magnitude: f64) -> Self {
         Self {
             id,
-            position: RaDec::from_degrees(ra_deg, dec_deg),
+            position: Equatorial::from_degrees(ra_deg, dec_deg),
             magnitude,
         }
     }
 
-    /// Create from an existing RaDec position
-    pub fn with_position(id: u64, position: RaDec, magnitude: f64) -> Self {
+    /// Create from an existing Equatorial position
+    pub fn with_position(id: u64, position: Equatorial, magnitude: f64) -> Self {
         Self {
             id,
             position,
@@ -79,7 +79,7 @@ impl MinimalStar {
 
         Ok(MinimalStar {
             id,
-            position: RaDec::from_degrees(ra_deg, dec_deg),
+            position: Equatorial::from_degrees(ra_deg, dec_deg),
             magnitude,
         })
     }
