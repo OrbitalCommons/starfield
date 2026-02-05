@@ -941,6 +941,11 @@ impl Time {
         self.whole + self.tt_fraction
     }
 
+    /// Access the timescale that created this Time
+    pub fn timescale(&self) -> &Timescale {
+        &self.ts
+    }
+
     /// Get the TT (Terrestrial Time) as Julian years
     pub fn j(&self) -> f64 {
         (self.whole - 1_721_045.0 + self.tt_fraction) / 365.25
