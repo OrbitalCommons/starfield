@@ -26,6 +26,7 @@ pub mod precessionlib;
 pub mod pybridge;
 pub mod relativity;
 pub mod searchlib;
+pub mod starlib;
 pub mod time;
 pub mod toposlib;
 pub mod units;
