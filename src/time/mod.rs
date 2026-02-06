@@ -1516,19 +1516,19 @@ impl From<DateTime<Utc>> for Time {
 /// Rotation matrix around X axis
 fn rot_x(angle: f64) -> Matrix3<f64> {
     let (s, c) = angle.sin_cos();
-    Matrix3::new(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c)
+    Matrix3::new(1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c)
 }
 
 /// Rotation matrix around Y axis
 fn rot_y(angle: f64) -> Matrix3<f64> {
     let (s, c) = angle.sin_cos();
-    Matrix3::new(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c)
+    Matrix3::new(c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c)
 }
 
 /// Rotation matrix around Z axis
 fn rot_z(angle: f64) -> Matrix3<f64> {
     let (s, c) = angle.sin_cos();
-    Matrix3::new(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0)
+    Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0)
 }
 
 /// Linear interpolation from a sorted table
