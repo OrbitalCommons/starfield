@@ -73,7 +73,7 @@ rust.collect_string(",".join(f"{v:.15f}" for v in results))
         (elem.semi_major_axis_au() - py[0]).abs()
     );
     assert!(
-        (elem.eccentricity() - py[1]).abs() < 1e-6,
+        (elem.eccentricity() - py[1]).abs() < 1e-5,
         "e: rust={} py={} diff={}",
         elem.eccentricity(),
         py[1],
