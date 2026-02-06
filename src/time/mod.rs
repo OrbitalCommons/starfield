@@ -1307,19 +1307,17 @@ impl Time {
 
     /// Compute polar motion angles: (s_prime, x_p, y_p) in arcseconds
     ///
-    /// If no polar motion table is loaded, returns zeros.
-    /// Otherwise interpolates x and y from the IERS table and computes
-    /// s_prime from the TDB time.
+    /// If no polar motion table is loaded, returns (0, 0, 0).
+    /// Otherwise computes s_prime from TDB and interpolates x, y from the table.
     pub fn polar_motion_angles(&self) -> (f64, f64, f64) {
-        let s_prime = -47.0e-6 * (self.tdb() - J2000) / 36525.0;
-
         if let Some((tt_dates, x_vals, y_vals)) = &self.ts.polar_motion_table {
+            let s_prime = -47.0e-6 * (self.tdb() - J2000) / 36525.0;
             let tt = self.tt();
             let x = linear_interpolate(tt_dates, x_vals, tt);
             let y = linear_interpolate(tt_dates, y_vals, tt);
             (s_prime, x, y)
         } else {
-            (s_prime, 0.0, 0.0)
+            (0.0, 0.0, 0.0)
         }
     }
 
