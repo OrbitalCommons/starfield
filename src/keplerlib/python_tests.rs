@@ -25,7 +25,14 @@ fn test_comet_orbit_vs_skyfield() {
     let perihelion_day = 9.4589;
 
     let ts = Timescale::default();
-    let t_perihelion = ts.tt(perihelion_year, perihelion_month, perihelion_day);
+    // Use tt() with integer day, then add fractional day via tt_jd
+    let t_whole = ts.tt((
+        perihelion_year,
+        perihelion_month as u32,
+        perihelion_day as u32,
+    ));
+    let perihelion_jd = t_whole.tt() + (perihelion_day - perihelion_day.floor());
+    let t_perihelion = ts.tt_jd(perihelion_jd, None);
 
     let orbit = comet_orbit(q, e, i, om, w, &t_perihelion, GM_SUN, Some("1P/Halley"));
 
