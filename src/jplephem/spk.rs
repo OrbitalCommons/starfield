@@ -106,6 +106,20 @@ impl SPK {
         Ok(spk)
     }
 
+    /// Create an SPK from an in-memory byte buffer
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        let daf = Arc::new(DAF::from_bytes(data)?);
+
+        let mut spk = SPK {
+            daf,
+            segments: Vec::new(),
+            pairs: HashMap::new(),
+        };
+
+        spk.parse_segments()?;
+        Ok(spk)
+    }
+
     fn parse_segments(&mut self) -> Result<()> {
         let summaries = self.daf.summaries()?;
 

@@ -288,4 +288,37 @@ mod tests {
         let _ = spk.comments();
         Ok(())
     }
+
+    #[test]
+    fn test_from_bytes_matches_file() -> Result<()> {
+        use crate::time::Timescale;
+
+        let data = std::fs::read(test_data_path("de421.bsp")).unwrap();
+        let mut kernel = SpiceKernel::from_bytes(&data)?;
+
+        // Verify segment count matches file-based loading
+        assert_eq!(kernel.spk().segments.len(), 15);
+
+        // Verify computed positions match file-based loading
+        let ts = Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+
+        let state = kernel.compute_at("earth", &t)?;
+        let dist_au =
+            (state.position.x.powi(2) + state.position.y.powi(2) + state.position.z.powi(2)).sqrt();
+        assert!(
+            dist_au > 0.9 && dist_au < 1.1,
+            "Earth should be ~1 AU from SSB, got {dist_au}"
+        );
+
+        // Compare with file-based kernel
+        let mut file_kernel = SpiceKernel::open(test_data_path("de421.bsp"))?;
+        let file_state = file_kernel.compute_at("earth", &t)?;
+
+        assert_eq!(state.position.x, file_state.position.x);
+        assert_eq!(state.position.y, file_state.position.y);
+        assert_eq!(state.position.z, file_state.position.z);
+
+        Ok(())
+    }
 }
