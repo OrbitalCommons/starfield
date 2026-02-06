@@ -19,7 +19,10 @@
 //! let (ra, dec, dist) = mars_apparent.radec(None);
 //! ```
 
-use nalgebra::{Matrix3, Vector3};
+#[cfg(all(test, feature = "python-tests"))]
+mod python_tests;
+
+use nalgebra::Vector3;
 use std::f64::consts::PI;
 
 use crate::constants::{AU_KM, C_AUDAY, DAY_S};
@@ -291,35 +294,26 @@ impl Position {
     /// Returns `(longitude_radians, latitude_radians, distance_au)`.
     /// Longitude is in [0, 2*PI), latitude in [-PI/2, PI/2].
     pub fn ecliptic_latlon(&self, t: &Time) -> (f64, f64, f64) {
-        let ecliptic_matrix = build_ecliptic_matrix(t);
-        let ec_pos = ecliptic_matrix * self.position;
-        let r = ec_pos.norm();
-        let mut lon = ec_pos.y.atan2(ec_pos.x);
-        let lat = (ec_pos.z / r).asin();
+        self.frame_latlon(&crate::framelib::ECLIPTIC_OF_DATE, t)
+    }
+
+    /// Compute longitude, latitude, and distance in an arbitrary reference frame.
+    ///
+    /// Matches Skyfield's `position.frame_latlon(frame)`.
+    ///
+    /// Returns `(longitude_radians, latitude_radians, distance_au)`.
+    /// Longitude is in [0, 2*PI), latitude in [-PI/2, PI/2].
+    pub fn frame_latlon(&self, frame: &dyn crate::framelib::Frame, t: &Time) -> (f64, f64, f64) {
+        let rot = frame.rotation_at(t);
+        let rotated = rot * self.position;
+        let r = rotated.norm();
+        let lat = (rotated.z / r).asin();
+        let mut lon = rotated.y.atan2(rotated.x);
         if lon < 0.0 {
             lon += 2.0 * PI;
         }
         (lon, lat, r)
     }
-}
-
-/// Build the ecliptic rotation matrix for the true ecliptic of date.
-///
-/// `R_x(-true_obliquity) × M`, matching Skyfield's `build_ecliptic_matrix(t)`.
-fn build_ecliptic_matrix(t: &Time) -> Matrix3<f64> {
-    let mean_obliq = crate::nutationlib::mean_obliquity(t.tdb());
-    let (_d_psi, d_eps) = crate::nutationlib::iau2000a_nutation(t.tt());
-    let true_obliq = mean_obliq + d_eps;
-
-    let (s, c) = (-true_obliq).sin_cos();
-    #[rustfmt::skip]
-    let rx = Matrix3::new(
-        1.0, 0.0, 0.0,
-        0.0,   c,  -s,
-        0.0,   s,   c,
-    );
-
-    rx * t.m_matrix()
 }
 
 impl std::fmt::Display for Position {
@@ -611,5 +605,52 @@ mod tests {
             (dec_icrf - dec_date).abs() < 0.01,
             "Dec ICRF vs date should be close at J2000"
         );
+    }
+
+    #[test]
+    fn test_frame_latlon_ecliptic() {
+        let mut kernel = de421_kernel();
+        let t = j2000_time();
+        let earth = kernel.at("earth", &t).unwrap();
+        let mars = earth.observe("mars", &mut kernel, &t).unwrap();
+
+        // ecliptic_latlon should match frame_latlon with ECLIPTIC_OF_DATE
+        let (lon1, lat1, r1) = mars.ecliptic_latlon(&t);
+        let (lon2, lat2, r2) = mars.frame_latlon(&crate::framelib::ECLIPTIC_OF_DATE, &t);
+
+        assert_relative_eq!(lon1, lon2, epsilon = 1e-15);
+        assert_relative_eq!(lat1, lat2, epsilon = 1e-15);
+        assert_relative_eq!(r1, r2, epsilon = 1e-15);
+    }
+
+    #[test]
+    fn test_frame_latlon_galactic() {
+        let mut kernel = de421_kernel();
+        let t = j2000_time();
+        let earth = kernel.at("earth", &t).unwrap();
+        let mars = earth.observe("mars", &mut kernel, &t).unwrap();
+
+        let (lon, lat, dist) = mars.frame_latlon(&crate::framelib::GALACTIC, &t);
+        // Just check that values are in valid ranges
+        assert!(
+            (0.0..std::f64::consts::TAU).contains(&lon),
+            "Galactic lon={lon}"
+        );
+        assert!(
+            lat.abs() <= std::f64::consts::FRAC_PI_2,
+            "Galactic lat={lat}"
+        );
+        assert!(dist > 0.0, "Distance should be positive");
+    }
+
+    #[test]
+    fn test_frame_latlon_icrs_identity() {
+        let pos = Position::barycentric(Vector3::new(1.0, 2.0, 3.0), Vector3::zeros(), 0);
+        let t = j2000_time();
+        let (lon, lat, _) = pos.frame_latlon(&crate::framelib::ICRS, &t);
+        // ICRS is identity — should match standard spherical conversion
+        let (_, dec, ra) = to_spherical(&pos.position);
+        assert_relative_eq!(lon, ra, epsilon = 1e-15);
+        assert_relative_eq!(lat, dec, epsilon = 1e-15);
     }
 }
