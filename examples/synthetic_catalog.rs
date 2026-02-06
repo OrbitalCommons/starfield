@@ -4,7 +4,7 @@
 //! with realistic magnitude distributions.
 
 use starfield::catalogs::{
-    create_fov_catalog, create_synthetic_catalog, BinaryCatalog, SpatialDistribution,
+    create_fov_catalog, create_synthetic_catalog, MinimalCatalog, SpatialDistribution,
     SyntheticCatalogConfig,
 };
 use std::path::Path;
@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Print information about a catalog
-fn print_catalog_info(catalog: &BinaryCatalog, title: &str) {
+fn print_catalog_info(catalog: &MinimalCatalog, title: &str) {
     println!("\n{}", title);
     println!("{}", "-".repeat(title.len()));
     println!("Description: {}", catalog.description());

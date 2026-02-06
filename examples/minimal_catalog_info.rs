@@ -1,20 +1,20 @@
-//! Utility to show information about binary star catalogs
+//! Utility to show information about minimal star catalogs
 //!
-//! This tool reads binary catalogs and displays metadata and statistics
+//! This tool reads minimal catalogs and displays metadata and statistics
 //! about the catalog contents.
 
 use std::env;
 use std::path::Path;
 
-use starfield::catalogs::{BinaryCatalog, StarPosition};
+use starfield::catalogs::{MinimalCatalog, StarPosition};
 
 fn print_catalog_info<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>> {
     // Get path as string for later use
     let path_string = path.as_ref().to_string_lossy().to_string();
 
     // Load the catalog
-    println!("Loading binary catalog: {}", path.as_ref().display());
-    let catalog = BinaryCatalog::load(&path)?;
+    println!("Loading minimal catalog: {}", path.as_ref().display());
+    let catalog = MinimalCatalog::load(&path)?;
 
     // Print basic information
     println!("\nCatalog Information:");
@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: cargo run --example binary_catalog_info -- <catalog_file_path>");
+        println!("Usage: cargo run --example minimal_catalog_info -- <catalog_file_path>");
         return Ok(());
     }
 
