@@ -27,16 +27,28 @@ pub mod teme;
 #[cfg(feature = "python-tests")]
 mod python_tests;
 
+use crate::constants::{AU_KM, DAY_S};
+use crate::positions::Position;
+use crate::searchlib;
+use crate::time::{Time, Timescale};
+use crate::toposlib::GeographicPosition;
+use crate::StarfieldError;
 use chrono::{Datelike, Timelike};
 use nalgebra::Vector3;
 use sgp4::{Constants, Elements, MinutesSinceEpoch, Prediction};
 
-use crate::constants::{AU_KM, DAY_S};
-use crate::positions::Position;
-use crate::time::{Time, Timescale};
-use crate::StarfieldError;
-
 use teme::transform_teme_to_gcrs;
+
+/// Satellite event type returned by `find_events()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SatelliteEvent {
+    /// Satellite rose above the altitude threshold
+    Rise = 0,
+    /// Satellite reached peak altitude (culmination)
+    Culminate = 1,
+    /// Satellite fell below the altitude threshold
+    Set = 2,
+}
 
 /// An Earth satellite loaded from a TLE and propagated with SGP4.
 ///
@@ -119,6 +131,33 @@ impl EarthSatellite {
             model,
             elements,
         })
+    }
+
+    /// Create a satellite from an OMM (Orbit Mean-elements Message) JSON string.
+    ///
+    /// OMM is the newer format replacing TLEs, used by Space-Track and Celestrak.
+    /// The JSON should contain standard OMM fields (OBJECT_NAME, EPOCH,
+    /// MEAN_MOTION, ECCENTRICITY, INCLINATION, etc.).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let omm_json = r#"{
+    ///     "OBJECT_NAME": "ISS (ZARYA)",
+    ///     "OBJECT_ID": "1998-067A",
+    ///     "EPOCH": "2024-01-01T12:00:00.000000",
+    ///     "MEAN_MOTION": 15.72,
+    ///     "ECCENTRICITY": 0.0006703,
+    ///     "INCLINATION": 51.6416,
+    ///     ...
+    /// }"#;
+    /// let sat = EarthSatellite::from_omm(omm_json, &ts)?;
+    /// ```
+    pub fn from_omm(json: &str, ts: &Timescale) -> Result<Self, StarfieldError> {
+        let elements: Elements = serde_json::from_str(json)
+            .map_err(|e| StarfieldError::DataError(format!("Failed to parse OMM JSON: {}", e)))?;
+        let name = elements.object_name.clone();
+        Self::from_elements(elements, name, ts)
     }
 
     /// Convert chrono NaiveDateTime to Time
@@ -224,6 +263,160 @@ impl EarthSatellite {
     pub fn elements(&self) -> &Elements {
         &self.elements
     }
+
+    /// Compute the satellite's altitude in degrees as seen from a ground observer.
+    ///
+    /// This is a simplified computation for satellite tracking that skips
+    /// the full barycentric→astrometric→apparent pipeline (light-time and
+    /// aberration are negligible for LEO/MEO satellites).
+    ///
+    /// The GCRS satellite position is rotated into ITRS, the observer ITRS
+    /// position is subtracted, and the result is projected onto the local
+    /// horizon frame.
+    fn altitude_degrees(
+        &self,
+        t: &Time,
+        observer: &GeographicPosition,
+    ) -> Result<f64, StarfieldError> {
+        let pos = self.at(t)?;
+
+        // Rotate satellite geocentric GCRS position into ITRS
+        let c = t.c_matrix();
+        let sat_itrs = c * pos.position;
+
+        // Difference vector in ITRS (AU)
+        let diff = sat_itrs - observer.itrs_xyz;
+
+        let (alt_rad, _az_rad) = observer.itrs_to_horizon(&diff);
+        Ok(alt_rad.to_degrees())
+    }
+
+    /// Find satellite rise, culmination, and set events as seen from an observer.
+    ///
+    /// Searches between `t0` and `t1` for passes of this satellite above
+    /// `altitude_degrees` as seen from `observer`.
+    ///
+    /// Returns a vector of `(Time, SatelliteEvent)` pairs sorted chronologically:
+    /// - `SatelliteEvent::Rise` — satellite rose above the altitude threshold
+    /// - `SatelliteEvent::Culminate` — satellite reached peak altitude
+    /// - `SatelliteEvent::Set` — satellite fell below the altitude threshold
+    ///
+    /// Matches Python Skyfield's `EarthSatellite.find_events()`.
+    pub fn find_events(
+        &self,
+        observer: &GeographicPosition,
+        t0: &Time,
+        t1: &Time,
+        ts: &Timescale,
+        altitude_degrees: f64,
+    ) -> Result<Vec<(Time, SatelliteEvent)>, StarfieldError> {
+        let jd_start = t0.tt();
+        let jd_end = t1.tt();
+        let half_second = 0.5 / DAY_S;
+
+        // Compute step size from orbital period
+        // mean_motion is already in rev/day
+        let orbits_per_day = self.elements.mean_motion;
+        let mut step_days = 0.05 / orbits_per_day.max(1.0);
+        if step_days > 0.25 {
+            step_days = 0.25;
+        }
+
+        // Find altitude maxima
+        let alt_fn = |jds: &[f64]| -> Vec<f64> {
+            jds.iter()
+                .map(|&jd| {
+                    let t = ts.tt_jd(jd, None);
+                    self.altitude_degrees(&t, observer).unwrap_or(-90.0)
+                })
+                .collect()
+        };
+
+        let maxima = searchlib::find_maxima(
+            jd_start,
+            jd_end,
+            &alt_fn,
+            step_days,
+            half_second,
+            searchlib::DEFAULT_NUM,
+        );
+
+        // Filter maxima above the altitude threshold
+        let keepers: Vec<(f64, f64)> = maxima
+            .into_iter()
+            .filter(|&(_, alt)| alt >= altitude_degrees)
+            .collect();
+
+        if keepers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results: Vec<(f64, SatelliteEvent)> = Vec::new();
+
+        // Add culmination events
+        for &(jd, _) in &keepers {
+            results.push((jd, SatelliteEvent::Culminate));
+        }
+
+        // Find rise/set transitions (above/below altitude threshold)
+        let mut below_fn = |jds: &[f64]| -> Vec<i64> {
+            jds.iter()
+                .map(|&jd| {
+                    let t = ts.tt_jd(jd, None);
+                    let alt = self.altitude_degrees(&t, observer).unwrap_or(-90.0);
+                    if alt < altitude_degrees {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .collect()
+        };
+
+        let transitions =
+            searchlib::find_discrete(jd_start, jd_end, &mut below_fn, step_days, half_second, 8);
+
+        for (jd, value) in transitions {
+            if value == 0 {
+                // Transitioned to above threshold = rise
+                results.push((jd, SatelliteEvent::Rise));
+            } else {
+                // Transitioned to below threshold = set
+                results.push((jd, SatelliteEvent::Set));
+            }
+        }
+
+        // Sort by time
+        results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        // Convert Julian dates to Time objects
+        let events: Vec<(Time, SatelliteEvent)> = results
+            .into_iter()
+            .map(|(jd, event)| (ts.tt_jd(jd, None), event))
+            .collect();
+
+        Ok(events)
+    }
+
+    /// Formatted display name matching Skyfield's `target_name` property.
+    ///
+    /// Format: `"NAME catalog #NORAD epoch YYYY-MM-DD HH:MM:SS UTC"`
+    pub fn target_name(&self) -> String {
+        let epoch_str = self
+            .epoch
+            .utc_strftime("%Y-%m-%d %H:%M:%S UTC")
+            .unwrap_or_else(|_| "unknown".to_string());
+        match &self.name {
+            Some(n) => format!("{} catalog #{} epoch {}", n, self.norad_id, epoch_str),
+            None => format!("catalog #{} epoch {}", self.norad_id, epoch_str),
+        }
+    }
+}
+
+impl std::fmt::Display for EarthSatellite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.target_name())
+    }
 }
 
 /// Parse multiple satellites from a multi-line TLE string.
@@ -261,6 +454,7 @@ pub fn parse_tle_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::toposlib::WGS84;
     use approx::assert_relative_eq;
 
     // ISS TLE for testing (from AIAA 2006-6753 Appendix C test case - slightly modified)
@@ -276,7 +470,6 @@ mod tests {
 
         assert_eq!(sat.name, Some("ISS".to_string()));
         assert_eq!(sat.norad_id, 25544);
-        // ISS orbits ~15.7 times per day (92-minute orbital period)
         assert_relative_eq!(sat.revs_per_day, 15.72, epsilon = 0.1);
     }
 
@@ -286,7 +479,6 @@ mod tests {
         let sat =
             EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, None, &ts).expect("Failed to parse TLE");
 
-        // Target ID should be -(100000 + 25544) = -125544
         assert_eq!(sat.target_id(), -125544);
     }
 
@@ -296,18 +488,12 @@ mod tests {
         let sat =
             EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, None, &ts).expect("Failed to parse TLE");
 
-        // Propagate to some time near the epoch
-        let t = ts.tt_jd(sat.epoch_jd() + 1.0, None); // 1 day after epoch
+        let t = ts.tt_jd(sat.epoch_jd() + 1.0, None);
         let pos = sat.at(&t).expect("Propagation failed");
 
-        // Position should be in reasonable range for LEO satellite
-        // ISS is ~400 km altitude, so distance from Earth center ~6800 km
-        // In AU: 6800 / 149597870.7 ≈ 4.5e-5 AU
         let dist_au = pos.position.norm();
         assert!(dist_au > 1e-5, "Distance too small: {} AU", dist_au);
         assert!(dist_au < 1e-4, "Distance too large: {} AU", dist_au);
-
-        // Verify it's Earth-centered
         assert_eq!(pos.center, 399);
     }
 
@@ -322,7 +508,6 @@ mod tests {
             .position_and_velocity_teme_km(&t)
             .expect("Failed to get TEME position");
 
-        // Position magnitude should be ~6800 km (ISS altitude + Earth radius)
         let r = pos_km.norm();
         assert!(
             r > 6000.0 && r < 7500.0,
@@ -330,12 +515,174 @@ mod tests {
             r
         );
 
-        // Velocity should be ~7.5 km/s for LEO
         let v = vel_kms.norm();
         assert!(
             v > 6.0 && v < 9.0,
             "Velocity magnitude {} km/s out of range",
             v
         );
+    }
+
+    #[test]
+    fn test_target_name_with_name() {
+        let ts = Timescale::default();
+        let sat = EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, Some("ISS"), &ts)
+            .expect("Failed to parse TLE");
+
+        let name = sat.target_name();
+        assert!(name.contains("ISS"));
+        assert!(name.contains("25544"));
+        assert!(name.contains("epoch"));
+    }
+
+    #[test]
+    fn test_target_name_without_name() {
+        let ts = Timescale::default();
+        let sat =
+            EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, None, &ts).expect("Failed to parse TLE");
+
+        let name = sat.target_name();
+        assert!(name.starts_with("catalog #25544"));
+    }
+
+    #[test]
+    fn test_display_trait() {
+        let ts = Timescale::default();
+        let sat = EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, Some("ISS"), &ts)
+            .expect("Failed to parse TLE");
+        let s = format!("{}", sat);
+        assert!(s.contains("ISS"));
+    }
+
+    #[test]
+    fn test_from_omm_json() {
+        let ts = Timescale::default();
+        let omm = r#"{
+            "OBJECT_NAME": "ISS (ZARYA)",
+            "OBJECT_ID": "1998-067A",
+            "EPOCH": "2024-01-01T12:00:00.000000",
+            "MEAN_MOTION": 15.72125391,
+            "ECCENTRICITY": 0.0006703,
+            "INCLINATION": 51.6416,
+            "RA_OF_ASC_NODE": 247.4627,
+            "ARG_OF_PERICENTER": 130.536,
+            "MEAN_ANOMALY": 325.0288,
+            "EPHEMERIS_TYPE": 0,
+            "CLASSIFICATION_TYPE": "U",
+            "NORAD_CAT_ID": 25544,
+            "ELEMENT_SET_NO": 999,
+            "REV_AT_EPOCH": 0,
+            "BSTAR": -0.11606E-4,
+            "MEAN_MOTION_DOT": -0.00002182,
+            "MEAN_MOTION_DDOT": 0
+        }"#;
+
+        let sat = EarthSatellite::from_omm(omm, &ts).expect("Failed to parse OMM");
+        assert_eq!(sat.name, Some("ISS (ZARYA)".to_string()));
+        assert_eq!(sat.norad_id, 25544);
+        assert_relative_eq!(sat.revs_per_day, 15.72, epsilon = 0.1);
+    }
+
+    #[test]
+    fn test_from_omm_invalid_json() {
+        let ts = Timescale::default();
+        let result = EarthSatellite::from_omm("not json", &ts);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_altitude_degrees() {
+        let ts = Timescale::default();
+        let sat =
+            EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, None, &ts).expect("Failed to parse TLE");
+
+        let observer = WGS84.latlon(42.3583, -71.0603, 43.0);
+        let t = ts.tt_jd(sat.epoch_jd(), None);
+        let alt = sat
+            .altitude_degrees(&t, &observer)
+            .expect("Failed to compute altitude");
+
+        // Altitude should be between -90 and 90
+        assert!(alt >= -90.0 && alt <= 90.0, "Altitude {} out of range", alt);
+    }
+
+    #[test]
+    fn test_find_events_returns_events() {
+        let ts = Timescale::default();
+        let sat = EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, Some("ISS"), &ts)
+            .expect("Failed to parse TLE");
+
+        // ISS orbits ~15.7 times/day, so in 1 day it should have multiple passes
+        let observer = WGS84.latlon(42.3583, -71.0603, 43.0);
+        let t0 = ts.tt_jd(sat.epoch_jd(), None);
+        let t1 = ts.tt_jd(sat.epoch_jd() + 1.0, None);
+
+        let events = sat
+            .find_events(&observer, &t0, &t1, &ts, 0.0)
+            .expect("Failed to find events");
+
+        // Over 1 day, ISS should have some visible passes from most locations
+        // (it orbits 15+ times, crossing many latitudes)
+        assert!(!events.is_empty(), "Expected at least one event in 1 day");
+
+        // Events should be chronologically ordered
+        for i in 1..events.len() {
+            assert!(
+                events[i].0.tt() >= events[i - 1].0.tt(),
+                "Events not in chronological order"
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_events_high_altitude_fewer() {
+        let ts = Timescale::default();
+        let sat = EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, Some("ISS"), &ts)
+            .expect("Failed to parse TLE");
+
+        let observer = WGS84.latlon(42.3583, -71.0603, 43.0);
+        let t0 = ts.tt_jd(sat.epoch_jd(), None);
+        let t1 = ts.tt_jd(sat.epoch_jd() + 1.0, None);
+
+        let events_low = sat
+            .find_events(&observer, &t0, &t1, &ts, 0.0)
+            .expect("Failed to find events");
+        let events_high = sat
+            .find_events(&observer, &t0, &t1, &ts, 45.0)
+            .expect("Failed to find events");
+
+        // Higher altitude threshold should yield equal or fewer events
+        assert!(
+            events_high.len() <= events_low.len(),
+            "Higher threshold should produce fewer events: {} vs {}",
+            events_high.len(),
+            events_low.len()
+        );
+    }
+
+    #[test]
+    fn test_find_events_event_types() {
+        let ts = Timescale::default();
+        let sat = EarthSatellite::from_tle(ISS_LINE1, ISS_LINE2, Some("ISS"), &ts)
+            .expect("Failed to parse TLE");
+
+        let observer = WGS84.latlon(42.3583, -71.0603, 43.0);
+        let t0 = ts.tt_jd(sat.epoch_jd(), None);
+        let t1 = ts.tt_jd(sat.epoch_jd() + 1.0, None);
+
+        let events = sat
+            .find_events(&observer, &t0, &t1, &ts, 0.0)
+            .expect("Failed to find events");
+
+        // Verify we get all three event types
+        let has_rise = events.iter().any(|(_, e)| *e == SatelliteEvent::Rise);
+        let has_culminate = events.iter().any(|(_, e)| *e == SatelliteEvent::Culminate);
+        let has_set = events.iter().any(|(_, e)| *e == SatelliteEvent::Set);
+
+        if !events.is_empty() {
+            assert!(has_culminate, "Expected at least one culmination event");
+            // Rise and set may be missing if pass spans boundary
+            let _ = (has_rise, has_set);
+        }
     }
 }

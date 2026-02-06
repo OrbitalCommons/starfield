@@ -96,19 +96,31 @@ pub fn teme_to_gcrs_full(t: &Time) -> (Matrix3<f64>, f64) {
 ///
 /// Position in km, velocity in km/s.
 /// Returns transformed (position, velocity) in the same units.
+///
+/// The velocity transformation accounts for Earth's rotation via the
+/// angular velocity cross product: v_gcrs = R * (v_teme + ω × r_teme)
 pub fn transform_teme_to_gcrs(
     t: &Time,
     pos_teme: &Vector3<f64>,
     vel_teme: &Vector3<f64>,
 ) -> (Vector3<f64>, Vector3<f64>) {
-    let r = teme_to_gcrs(t);
+    let (r, theta_dot) = teme_to_gcrs_full(t);
 
     // Transform position
     let pos_gcrs = r * pos_teme;
 
-    // Transform velocity (rotation only, ignoring Earth rotation for now
-    // since it's a small effect for satellite tracking)
-    let vel_gcrs = r * vel_teme;
+    // Angular velocity of Earth in radians/second (theta_dot is rad/day)
+    let omega = theta_dot / DAY_S;
+
+    // v_corrected = v_teme + ω × r_teme
+    // ω is along z-axis, so ω × r = (-ω*y, ω*x, 0)
+    let vel_corrected = Vector3::new(
+        vel_teme.x - omega * pos_teme.y,
+        vel_teme.y + omega * pos_teme.x,
+        vel_teme.z,
+    );
+
+    let vel_gcrs = r * vel_corrected;
 
     (pos_gcrs, vel_gcrs)
 }
