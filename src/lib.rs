@@ -18,6 +18,7 @@ pub mod errors;
 pub mod framelib;
 pub mod image;
 pub mod jplephem;
+pub mod keplerlib;
 pub mod magnitudelib;
 pub mod nutationlib;
 pub mod planetlib;
