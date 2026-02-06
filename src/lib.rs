@@ -15,6 +15,7 @@ pub mod constellationlib;
 pub mod coordinates;
 pub mod data;
 pub mod earthlib;
+pub mod eclipselib;
 pub mod elementslib;
 pub mod errors;
 pub mod framelib;
