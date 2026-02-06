@@ -179,7 +179,7 @@ impl GeographicPosition {
     /// Rotate an ITRS direction vector into local horizon coordinates.
     ///
     /// Returns (altitude_radians, azimuth_radians).
-    fn itrs_to_horizon(&self, itrs_direction: &Vector3<f64>) -> (f64, f64) {
+    pub(crate) fn itrs_to_horizon(&self, itrs_direction: &Vector3<f64>) -> (f64, f64) {
         let slat = self.latitude.sin();
         let clat = self.latitude.cos();
         let slon = self.longitude.sin();
