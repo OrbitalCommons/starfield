@@ -19,7 +19,7 @@
 //! println!("Eccentricity: {}", elements.eccentricity());
 //! ```
 
-#[cfg(feature = "python-tests")]
+#[cfg(all(test, feature = "python-tests"))]
 mod python_tests;
 
 use std::f64::consts::PI;
