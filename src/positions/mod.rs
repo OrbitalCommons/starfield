@@ -69,8 +69,8 @@ pub struct Position {
     pub target: i32,
     /// Light travel time in days (set after observe)
     pub light_time: f64,
-    /// Barycentric position of the observer (for apparent computation)
-    observer_barycentric: Option<Box<Position>>,
+    /// Barycentric position of the observer (for apparent/magnitude computation)
+    pub observer_barycentric: Option<Box<Position>>,
 }
 
 impl Position {
