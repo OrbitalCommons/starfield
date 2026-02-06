@@ -5,6 +5,9 @@
 
 use crate::constants::J2000;
 
+#[cfg(feature = "python-tests")]
+mod python_tests;
+
 /// Compute the Earth Rotation Angle (ERA) for a UT1 date
 ///
 /// Uses the expression from IAU Resolution B1.8 of 2000.
@@ -41,6 +44,59 @@ pub fn sidereal_time(jd_ut1_whole: f64, ut1_fraction: f64, tdb_centuries: f64) -
     // Convert: st is in arcseconds, divide by 54000 to get hours
     // theta is in rotations, multiply by 24 to get hours
     (st / 54000.0 + theta * 24.0).rem_euclid(24.0)
+}
+
+/// Parse IERS finals2000A.all file to extract polar motion data.
+///
+/// Returns `(utc_mjd, x_arcseconds, y_arcseconds)` vectors.
+/// The finals2000A format uses fixed-width columns:
+/// - Columns 7-15: UTC Modified Julian Date
+/// - Columns 18-27: Polar motion X (arcseconds)
+/// - Columns 37-46: Polar motion Y (arcseconds)
+pub fn parse_finals2000a(data: &str) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut mjds = Vec::new();
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+
+    for line in data.lines() {
+        if line.len() < 68 {
+            continue;
+        }
+        let mjd_str = line.get(7..15).unwrap_or("").trim();
+        let x_str = line.get(18..27).unwrap_or("").trim();
+        let y_str = line.get(37..46).unwrap_or("").trim();
+
+        if let (Ok(mjd), Ok(x), Ok(y)) = (
+            mjd_str.parse::<f64>(),
+            x_str.parse::<f64>(),
+            y_str.parse::<f64>(),
+        ) {
+            mjds.push(mjd);
+            xs.push(x);
+            ys.push(y);
+        }
+    }
+
+    (mjds, xs, ys)
+}
+
+/// Convert IERS finals data to polar motion table format (TT Julian dates)
+///
+/// Converts MJD dates to TT Julian dates by adding the MJD epoch offset
+/// and an approximate TT-UTC offset.
+pub fn finals_to_polar_motion_table(
+    mjds: &[f64],
+    xs: &[f64],
+    ys: &[f64],
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    // MJD → JD: add 2400000.5
+    // UTC → TT: approximate with 32.184 + leap_seconds (~37s in modern era)
+    // For interpolation purposes, ~1 second error in the time index is negligible
+    let tt_jds: Vec<f64> = mjds
+        .iter()
+        .map(|&mjd| mjd + 2400000.5 + 69.184 / 86400.0)
+        .collect();
+    (tt_jds, xs.to_vec(), ys.to_vec())
 }
 
 #[cfg(test)]
@@ -89,5 +145,57 @@ mod tests {
         let gmst2 = sidereal_time(J2000, 0.01, 0.01 / 36525.0);
         let diff = (gmst2 - gmst1 + 24.0) % 24.0;
         assert!(diff > 0.2 && diff < 0.3, "GMST increase = {diff}");
+    }
+
+    #[test]
+    fn test_polar_motion_matrix_identity_at_zero() {
+        let ts = crate::time::Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+        // Without polar motion table, matrix should be near identity
+        let w = t.polar_motion_matrix();
+        let det = w.determinant();
+        assert_relative_eq!(det, 1.0, epsilon = 1e-14);
+    }
+
+    #[test]
+    fn test_polar_motion_angles_without_table() {
+        let ts = crate::time::Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+        let (s_prime, x, y) = t.polar_motion_angles();
+        // s_prime should be near zero at J2000
+        assert!(s_prime.abs() < 1e-3, "s_prime = {s_prime}");
+        // Without table, x and y should be zero
+        assert_eq!(x, 0.0);
+        assert_eq!(y, 0.0);
+    }
+
+    #[test]
+    fn test_polar_motion_with_table() {
+        let mut ts = crate::time::Timescale::default();
+        // Install a simple table: J2000 ± 100 days with constant x=0.1, y=0.2
+        let tt_jd = vec![2451445.0, 2451545.0, 2451645.0];
+        let x = vec![0.1, 0.1, 0.1];
+        let y = vec![0.2, 0.2, 0.2];
+        ts.set_polar_motion_table(tt_jd, x, y);
+        assert!(ts.has_polar_motion());
+
+        let t = ts.tdb_jd(2451545.0);
+        let (_, xp, yp) = t.polar_motion_angles();
+        assert_relative_eq!(xp, 0.1, epsilon = 1e-10);
+        assert_relative_eq!(yp, 0.2, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_c_matrix_orthogonality() {
+        let ts = crate::time::Timescale::default();
+        let t = ts.tdb_jd(2451545.0);
+        let c = t.c_matrix();
+        let product = c.transpose() * c;
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert_relative_eq!(product[(i, j)], expected, epsilon = 1e-14);
+            }
+        }
     }
 }
