@@ -138,23 +138,58 @@ impl Loader {
         catalogs::GaiaCatalog::create_synthetic()
     }
 
-    /// Load a SPICE SPK/BSP ephemeris file
+    /// Load a SPICE SPK/BSP ephemeris file from a local path.
     ///
     /// Returns a SpiceKernel that can compute planetary positions.
     pub fn load_spk<P: AsRef<Path>>(&self, path: P) -> Result<jplephem::SpiceKernel> {
         Ok(jplephem::SpiceKernel::open(path)?)
     }
 
-    /// Load planetary ephemeris from a BSP file
+    /// Load planetary ephemeris from a local BSP file path.
     pub fn load_ephemeris<P: AsRef<Path>>(&self, path: P) -> Result<planetlib::Ephemeris> {
         let kernel = jplephem::SpiceKernel::open(path)?;
         Ok(planetlib::Ephemeris::from_kernel(kernel))
     }
 
+    /// Open a data file by name, automatically downloading it if necessary.
+    ///
+    /// Recognizes `.bsp` ephemeris filenames (e.g. `"de421.bsp"`, `"de430t.bsp"`)
+    /// and downloads them from JPL/NAIF servers to the cache directory.
+    /// Files are cached in `data_dir` (if set) or `~/.cache/starfield/`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let loader = starfield::Loader::new();
+    /// let mut kernel = loader.open("de421.bsp").unwrap();
+    /// ```
+    pub fn open(&self, filename: &str) -> Result<jplephem::SpiceKernel> {
+        let path = data::download_or_cache(filename, self.data_dir.as_deref())?;
+        Ok(jplephem::SpiceKernel::open(path)?)
+    }
+
+    /// Open a BSP file and return an Ephemeris, downloading if necessary.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let loader = starfield::Loader::new();
+    /// let eph = loader.open_ephemeris("de421.bsp").unwrap();
+    /// ```
+    pub fn open_ephemeris(&self, filename: &str) -> Result<planetlib::Ephemeris> {
+        let kernel = self.open(filename)?;
+        Ok(planetlib::Ephemeris::from_kernel(kernel))
+    }
+
+    /// Ensure a data file is available locally, downloading if needed.
+    ///
+    /// Returns the local path without opening or parsing the file.
+    pub fn ensure_file(&self, filename: &str) -> Result<std::path::PathBuf> {
+        data::download_or_cache(filename, self.data_dir.as_deref())
+    }
+
     /// Load a timescale for time conversions
     pub fn timescale(&self) -> time::Timescale {
-        // For now, we return a default timescale with basic data
-        // In the future, this could load delta_t data and leap second files
         time::Timescale::default()
     }
 }
