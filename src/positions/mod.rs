@@ -89,6 +89,22 @@ impl Position {
         }
     }
 
+    /// Create a Geocentric position (Earth-centered).
+    ///
+    /// Position in AU, velocity in AU/day, relative to Earth's center.
+    /// Used for satellites and other Earth-orbiting objects.
+    pub fn geocentric(position: Vector3<f64>, velocity: Vector3<f64>, target: i32) -> Self {
+        Position {
+            position,
+            velocity,
+            kind: PositionKind::Barycentric, // Same kind, different center
+            center: 399,                     // Earth NAIF ID
+            target,
+            light_time: 0.0,
+            observer_barycentric: None,
+        }
+    }
+
     /// Create an Astrometric position from an observer and relative vectors.
     ///
     /// Used by `Star::observe_from()` and other non-ephemeris observations.
