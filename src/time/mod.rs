@@ -4,7 +4,9 @@
 //! conversions between them, and computing with calendar dates. It is inspired by
 //! the Python Skyfield library's time handling.
 
-use crate::constants::{DAY_S, GREGORIAN_START, J2000, TAU, TT_MINUS_TAI, TT_MINUS_TAI_S};
+use crate::constants::{
+    ASEC2RAD, DAY_S, GREGORIAN_START, J2000, TAU, TT_MINUS_TAI, TT_MINUS_TAI_S,
+};
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 use nalgebra::Matrix3;
 use std::cell::Cell;
@@ -65,6 +67,8 @@ pub struct Timescale {
     leap_tai: Option<Vec<f64>>,
     /// Julian date for cutoff between Julian and Gregorian calendars
     julian_calendar_cutoff: Option<i32>,
+    /// Polar motion table: (tt_jd[], x_arcsec[], y_arcsec[])
+    polar_motion_table: Option<(Vec<f64>, Vec<f64>, Vec<f64>)>,
 }
 
 impl Default for Timescale {
@@ -78,6 +82,7 @@ impl Default for Timescale {
             leap_utc: None,
             leap_tai: None,
             julian_calendar_cutoff: Some(GREGORIAN_START),
+            polar_motion_table: None,
         };
 
         // Initialize with basic leap second data (just enough to work)
@@ -103,11 +108,32 @@ impl Timescale {
             leap_utc: None,
             leap_tai: None,
             julian_calendar_cutoff,
+            polar_motion_table: None,
         };
 
         // Initialize the leap second conversion tables
         ts.init_leap_second_tables();
         ts
+    }
+
+    /// Install a polar motion table for IERS corrections.
+    ///
+    /// The table consists of three parallel vectors:
+    /// - `tt_jd`: TT Julian dates
+    /// - `x_arcsec`: Polar motion X component in arcseconds
+    /// - `y_arcsec`: Polar motion Y component in arcseconds
+    pub fn set_polar_motion_table(
+        &mut self,
+        tt_jd: Vec<f64>,
+        x_arcsec: Vec<f64>,
+        y_arcsec: Vec<f64>,
+    ) {
+        self.polar_motion_table = Some((tt_jd, x_arcsec, y_arcsec));
+    }
+
+    /// Check whether a polar motion table has been loaded
+    pub fn has_polar_motion(&self) -> bool {
+        self.polar_motion_table.is_some()
     }
 
     /// Initialize basic leap second data
@@ -1279,12 +1305,43 @@ impl Time {
         self.m_matrix().transpose()
     }
 
+    /// Compute polar motion angles: (s_prime, x_p, y_p) in arcseconds
+    ///
+    /// If no polar motion table is loaded, returns zeros.
+    /// Otherwise interpolates x and y from the IERS table and computes
+    /// s_prime from the TDB time.
+    pub fn polar_motion_angles(&self) -> (f64, f64, f64) {
+        let s_prime = -47.0e-6 * (self.tdb() - J2000) / 36525.0;
+
+        if let Some((tt_dates, x_vals, y_vals)) = &self.ts.polar_motion_table {
+            let tt = self.tt();
+            let x = linear_interpolate(tt_dates, x_vals, tt);
+            let y = linear_interpolate(tt_dates, y_vals, tt);
+            (s_prime, x, y)
+        } else {
+            (s_prime, 0.0, 0.0)
+        }
+    }
+
+    /// Compute the polar motion rotation matrix W
+    ///
+    /// W = R_x(y_p) × R_y(x_p) × R_z(-s_prime)
+    /// where angles are in arcseconds, converted to radians.
+    pub fn polar_motion_matrix(&self) -> Matrix3<f64> {
+        let (s_prime, x_p, y_p) = self.polar_motion_angles();
+        let sp = -s_prime * ASEC2RAD;
+        let xp = x_p * ASEC2RAD;
+        let yp = y_p * ASEC2RAD;
+
+        rot_x(yp) * rot_y(xp) * rot_z(sp)
+    }
+
     /// Get the GCRS → ITRS rotation matrix
     ///
-    /// `R_z(-GAST × τ/24) × M`
+    /// `W × R_z(-GAST × τ/24) × M`
     ///
     /// This is Skyfield's `itrs.rotation_at(t)`: Earth's full rotation
-    /// (precession + nutation + daily sidereal rotation).
+    /// (precession + nutation + daily sidereal rotation + polar motion).
     pub fn c_matrix(&self) -> Matrix3<f64> {
         let angle = -self.gast() * TAU / 24.0;
 
@@ -1296,7 +1353,13 @@ impl Time {
             0.0, 0.0, 1.0,
         );
 
-        r * self.m_matrix()
+        let base = r * self.m_matrix();
+
+        if self.ts.polar_motion_table.is_some() {
+            self.polar_motion_matrix() * base
+        } else {
+            base
+        }
     }
 
     /// Get the transpose of C (ITRS → ICRS)
@@ -1450,6 +1513,44 @@ impl From<DateTime<Utc>> for Time {
     fn from(dt: DateTime<Utc>) -> Self {
         Self::new(dt)
     }
+}
+
+/// Rotation matrix around X axis
+fn rot_x(angle: f64) -> Matrix3<f64> {
+    let (s, c) = angle.sin_cos();
+    Matrix3::new(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c)
+}
+
+/// Rotation matrix around Y axis
+fn rot_y(angle: f64) -> Matrix3<f64> {
+    let (s, c) = angle.sin_cos();
+    Matrix3::new(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c)
+}
+
+/// Rotation matrix around Z axis
+fn rot_z(angle: f64) -> Matrix3<f64> {
+    let (s, c) = angle.sin_cos();
+    Matrix3::new(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0)
+}
+
+/// Linear interpolation from a sorted table
+fn linear_interpolate(xs: &[f64], ys: &[f64], x: f64) -> f64 {
+    if xs.is_empty() {
+        return 0.0;
+    }
+    if x <= xs[0] {
+        return ys[0];
+    }
+    if x >= xs[xs.len() - 1] {
+        return ys[ys.len() - 1];
+    }
+    let idx = xs.partition_point(|&v| v < x);
+    if idx == 0 {
+        return ys[0];
+    }
+    let i = idx - 1;
+    let frac = (x - xs[i]) / (xs[i + 1] - xs[i]);
+    ys[i] + frac * (ys[i + 1] - ys[i])
 }
 
 #[cfg(test)]
