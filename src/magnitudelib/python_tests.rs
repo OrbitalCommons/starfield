@@ -4,8 +4,16 @@
 mod tests {
     use crate::jplephem::SpiceKernel;
     use crate::magnitudelib::planetary_magnitude;
-    use crate::pybridge::PyRustBridge;
+    use crate::pybridge::{PyRustBridge, PythonResult};
     use crate::time::Timescale;
+
+    fn unwrap_py_json(raw: &str) -> serde_json::Value {
+        let inner = match PythonResult::try_from(raw).expect("Failed to parse Python result") {
+            PythonResult::String(s) => s,
+            other => panic!("Expected String result, got {:?}", other),
+        };
+        serde_json::from_str(&inner).expect("JSON parse failed")
+    }
 
     fn de421_kernel() -> SpiceKernel {
         SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap()
@@ -39,8 +47,7 @@ rust.collect_string(json.dumps({"mag": float(mag)}))
             )
             .expect("Python Jupiter magnitude failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let parsed = unwrap_py_json(&py_result);
         let py_mag = parsed["mag"].as_f64().unwrap();
 
         let earth = kernel.at("earth", &t).unwrap();
@@ -83,8 +90,7 @@ rust.collect_string(json.dumps({"mag": float(mag)}))
             )
             .expect("Python Mars magnitude failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let parsed = unwrap_py_json(&py_result);
         let py_mag = parsed["mag"].as_f64().unwrap();
 
         let earth = kernel.at("earth", &t).unwrap();
@@ -125,8 +131,7 @@ rust.collect_string(json.dumps({"mag": float(mag)}))
             )
             .expect("Python Venus magnitude failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let parsed = unwrap_py_json(&py_result);
         let py_mag = parsed["mag"].as_f64().unwrap();
 
         let earth = kernel.at("earth", &t).unwrap();
@@ -167,8 +172,7 @@ rust.collect_string(json.dumps({"mag": float(mag) if not math.isnan(mag) else "n
             )
             .expect("Python Saturn magnitude failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let parsed = unwrap_py_json(&py_result);
 
         let earth = kernel.at("earth", &t).unwrap();
         let saturn = earth.observe("saturn barycenter", &mut kernel, &t).unwrap();
@@ -217,8 +221,7 @@ rust.collect_string(json.dumps(results))
             )
             .expect("Python batch magnitude failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let parsed = unwrap_py_json(&py_result);
 
         let planets = [
             ("venus", "venus"),
