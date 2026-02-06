@@ -1,6 +1,6 @@
 [package]
 name = "starfield"
-version = "0.3.0"
+version = "0.9.0"
 edition = "2021"
 authors = ["Matthew Goodman"]
 description = "Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms (inspired by skyfield)"
