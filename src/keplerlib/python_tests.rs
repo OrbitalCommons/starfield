@@ -22,7 +22,7 @@ fn test_comet_orbit_vs_skyfield() {
     let w = 111.33;
     let perihelion_year = 1986;
     let perihelion_month = 2;
-    let perihelion_day = 9.4589;
+    let perihelion_day: f64 = 9.4589;
 
     let ts = Timescale::default();
     // Use tt() with integer day, then add fractional day via tt_jd
