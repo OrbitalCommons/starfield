@@ -1,4 +1,4 @@
-//! Binary star catalog format for efficient storage and loading
+//! Minimal star catalog format for efficient storage and loading
 //!
 //! This module provides a compact binary format for storing star catalogs with
 //! minimal fields (ID, position, magnitude), optimized for size and loading speed.
@@ -13,7 +13,7 @@ use std::path::Path;
 use super::{StarCatalog, StarData, StarPosition};
 use crate::StarfieldError;
 
-/// Magic bytes for identification of binary catalog format files
+/// Magic bytes for identification of minimal catalog format files
 pub const MAGIC_BYTES: &[u8; 6] = b"BINCAT";
 
 /// Current version of the binary format
@@ -95,17 +95,17 @@ impl StarPosition for MinimalStar {
     }
 }
 
-/// Binary star catalog container
+/// Minimal star catalog container
 #[derive(Debug, Clone)]
-pub struct BinaryCatalog {
+pub struct MinimalCatalog {
     /// Vector of minimal star entries
     stars: Vec<MinimalStar>,
     /// Catalog description
     description: String,
 }
 
-impl BinaryCatalog {
-    /// Create a new empty binary catalog
+impl MinimalCatalog {
+    /// Create a new empty minimal catalog
     pub fn new() -> Self {
         Self {
             stars: Vec::new(),
@@ -234,7 +234,7 @@ impl BinaryCatalog {
 
         if &magic != MAGIC_BYTES {
             return Err(StarfieldError::DataError(
-                "Invalid binary catalog format: incorrect magic bytes".to_string(),
+                "Invalid minimal catalog format: incorrect magic bytes".to_string(),
             ));
         }
 
@@ -242,7 +242,7 @@ impl BinaryCatalog {
         let version = reader.read_u8()?;
         if version != FORMAT_VERSION {
             return Err(StarfieldError::DataError(format!(
-                "Unsupported binary catalog version: {}. Expected version {}",
+                "Unsupported minimal catalog version: {}. Expected version {}",
                 version, FORMAT_VERSION
             )));
         }
@@ -272,7 +272,7 @@ impl BinaryCatalog {
                 Err(e) => {
                     if e.kind() == io::ErrorKind::UnexpectedEof {
                         return Err(StarfieldError::DataError(
-                            "Truncated binary catalog file".to_string(),
+                            "Truncated minimal catalog file".to_string(),
                         ));
                     } else {
                         return Err(StarfieldError::IoError(e));
@@ -294,7 +294,7 @@ impl BinaryCatalog {
     }
 }
 
-impl BinaryCatalog {
+impl MinimalCatalog {
     /// Write a star catalog directly from an iterator of StarData
     ///
     /// This method is designed for large datasets where you don't want to
@@ -365,13 +365,13 @@ impl BinaryCatalog {
     }
 }
 
-impl Default for BinaryCatalog {
+impl Default for MinimalCatalog {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl StarCatalog for BinaryCatalog {
+impl StarCatalog for MinimalCatalog {
     type Star = MinimalStar;
 
     fn get_star(&self, id: usize) -> Option<&Self::Star> {
@@ -399,7 +399,7 @@ impl StarCatalog for BinaryCatalog {
                 star.id,
                 star.position,
                 star.magnitude,
-                None, // Binary catalog doesn't store B-V color
+                None, // Minimal catalog doesn't store B-V color
             )
         })
     }
@@ -421,7 +421,7 @@ mod tests {
     use tempfile::tempdir;
 
     // Helper to create a test catalog
-    fn create_test_catalog() -> BinaryCatalog {
+    fn create_test_catalog() -> MinimalCatalog {
         // Create stars vector directly
         let stars = vec![
             MinimalStar::new(1, 100.0, 10.0, -1.5), // Sirius-like
@@ -432,7 +432,7 @@ mod tests {
         ];
 
         // Create catalog from stars
-        BinaryCatalog::from_stars(stars, "Test star catalog with bright stars")
+        MinimalCatalog::from_stars(stars, "Test star catalog with bright stars")
     }
 
     #[test]
@@ -465,7 +465,7 @@ mod tests {
         catalog.save(&file_path).unwrap();
 
         // Load catalog
-        let loaded_catalog = BinaryCatalog::load(&file_path).unwrap();
+        let loaded_catalog = MinimalCatalog::load(&file_path).unwrap();
 
         // Verify contents
         assert_eq!(catalog.len(), loaded_catalog.len());
@@ -541,7 +541,7 @@ mod tests {
         writer.flush().unwrap();
 
         // Try to load the catalog
-        let result = BinaryCatalog::load(&file_path);
+        let result = MinimalCatalog::load(&file_path);
         assert!(result.is_err());
 
         if let Err(StarfieldError::DataError(msg)) = result {
@@ -571,13 +571,13 @@ mod tests {
         writer.flush().unwrap();
 
         // Try to load the catalog
-        let result = BinaryCatalog::load(&file_path);
+        let result = MinimalCatalog::load(&file_path);
         assert!(result.is_err());
 
         if let Err(StarfieldError::DataError(msg)) = result {
-            assert!(msg.contains("Unsupported binary catalog version"));
+            assert!(msg.contains("Unsupported minimal catalog version"));
         } else {
-            panic!("Expected DataError with 'Unsupported binary catalog version' message");
+            panic!("Expected DataError with 'Unsupported minimal catalog version' message");
         }
     }
 
@@ -609,11 +609,11 @@ mod tests {
         writer.flush().unwrap();
 
         // Try to load the catalog
-        let result = BinaryCatalog::load(&file_path);
+        let result = MinimalCatalog::load(&file_path);
         assert!(result.is_err());
 
         if let Err(StarfieldError::DataError(msg)) = result {
-            assert!(msg.contains("Truncated binary catalog") || msg.contains("Expected"));
+            assert!(msg.contains("Truncated minimal catalog") || msg.contains("Expected"));
         } else {
             panic!("Expected DataError with truncated file message");
         }
@@ -635,7 +635,7 @@ mod tests {
         ];
 
         // Test with pre-known count
-        let count = BinaryCatalog::write_from_star_data(
+        let count = MinimalCatalog::write_from_star_data(
             &file_path,
             star_data.iter().copied(),
             "Test streaming catalog",
@@ -646,7 +646,7 @@ mod tests {
         assert_eq!(count, 5);
 
         // Load the catalog and verify
-        let loaded_catalog = BinaryCatalog::load(&file_path).unwrap();
+        let loaded_catalog = MinimalCatalog::load(&file_path).unwrap();
 
         // Check basic properties
         assert_eq!(loaded_catalog.len(), 5);
@@ -654,7 +654,7 @@ mod tests {
 
         // Test without pre-known count (requires seeking)
         let file_path2 = temp_dir.path().join("streamed_catalog2.bin");
-        let count2 = BinaryCatalog::write_from_star_data(
+        let count2 = MinimalCatalog::write_from_star_data(
             &file_path2,
             star_data.iter().copied(),
             "Test streaming catalog 2",
@@ -665,7 +665,7 @@ mod tests {
         assert_eq!(count2, 5);
 
         // Load the second catalog and verify
-        let loaded_catalog2 = BinaryCatalog::load(&file_path2).unwrap();
+        let loaded_catalog2 = MinimalCatalog::load(&file_path2).unwrap();
         assert_eq!(loaded_catalog2.len(), 5);
 
         // Verify star data was preserved correctly in both cases

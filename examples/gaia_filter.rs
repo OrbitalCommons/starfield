@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use flate2::write;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use starfield::catalogs::{BinaryCatalog, StarData};
+use starfield::catalogs::{MinimalCatalog, StarData};
 use starfield::data::list_cached_gaia_files;
 
 /// Command line arguments for the Gaia Catalog Filter Tool
@@ -653,7 +653,7 @@ fn process_files_and_stream<P: AsRef<Path>>(
     // Create description for the catalog
     let desc = format!("Gaia catalog filtered to magnitude {}", magnitude_limit);
 
-    // Create a progress bar for writing to the binary catalog
+    // Create a progress bar for writing to the minimal catalog
     let catalog_style = ProgressStyle::default_bar()
         .template(
             "{spinner:.green} [{elapsed_precise}] [{bar:40.yellow/blue}] Writing stars ({eta})",
@@ -672,7 +672,7 @@ fn process_files_and_stream<P: AsRef<Path>>(
     });
 
     // Write catalog directly from the iterator interface of our collector
-    let written_count = BinaryCatalog::write_from_star_data(
+    let written_count = MinimalCatalog::write_from_star_data(
         &output_path,
         counting_iterator,
         &desc,
@@ -836,7 +836,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Create description for the catalog
             let desc = format!("Gaia catalog filtered to magnitude {}", cli.magnitude);
 
-            // Create a progress bar for writing to the binary catalog
+            // Create a progress bar for writing to the minimal catalog
             let catalog_style = ProgressStyle::default_bar()
                 .template(
                     "{spinner:.green} [{elapsed_precise}] [{bar:40.yellow/blue}] Writing stars ({eta})",
@@ -856,7 +856,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             // Write catalog directly from the iterator interface of our collector
-            let star_count = BinaryCatalog::write_from_star_data(
+            let star_count = MinimalCatalog::write_from_star_data(
                 &output_file,
                 counting_iterator,
                 &desc,

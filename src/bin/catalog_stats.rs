@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use starfield::catalogs::hipparcos::HipparcosEntry;
-use starfield::catalogs::{BinaryCatalog, MinimalStar, StarCatalog};
+use starfield::catalogs::{MinimalCatalog, MinimalStar, StarCatalog};
 use starfield::Loader;
 
 /// Print a simple progress bar
@@ -38,14 +38,14 @@ fn filter_and_save<P: AsRef<Path>>(
         output_path.as_ref().display()
     );
 
-    // Create description for the binary catalog
+    // Create description for the minimal catalog
     let desc = format!(
         "Hipparcos filtered catalog: magnitude <= {}, created on {}",
         magnitude_limit,
         chrono::Local::now().format("%Y-%m-%d")
     );
 
-    // Filter stars and add to binary catalog
+    // Filter stars and add to minimal catalog
     let mut count = 0;
     // We'll collect the stars first, then build the catalog
     let mut filtered_stars = Vec::new();
@@ -60,12 +60,12 @@ fn filter_and_save<P: AsRef<Path>>(
     }
 
     // Create the catalog from collected stars
-    let binary_catalog = BinaryCatalog::from_stars(filtered_stars, &desc);
+    let catalog = MinimalCatalog::from_stars(filtered_stars, &desc);
 
     // Save the catalog
-    binary_catalog.save(output_path)?;
+    catalog.save(output_path)?;
 
-    println!("Saved {} stars to binary catalog", count);
+    println!("Saved {} stars to minimal catalog", count);
     Ok(count)
 }
 

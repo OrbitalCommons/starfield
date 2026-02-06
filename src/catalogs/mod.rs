@@ -6,16 +6,16 @@
 
 use crate::coordinates::Equatorial;
 
-pub mod binary_catalog;
 pub mod features;
 mod gaia;
 pub mod hipparcos;
+pub mod minimal_catalog;
 pub mod synthetic;
 
-pub use binary_catalog::{BinaryCatalog, MinimalStar};
 pub use features::{FeatureCatalog, FeatureType, SkyFeature};
 pub use gaia::{GaiaCatalog, GaiaEntry};
 pub use hipparcos::{HipparcosCatalog, HipparcosEntry};
+pub use minimal_catalog::{MinimalCatalog, MinimalStar};
 pub use synthetic::{
     create_fov_catalog, create_synthetic_catalog, MagnitudeDistribution, SpatialDistribution,
     SyntheticCatalogConfig,
@@ -154,8 +154,8 @@ pub trait StarCatalog {
 pub enum CatalogSource {
     /// Hipparcos catalog (default path in cache)
     Hipparcos,
-    /// Binary catalog with specified path (checks relative path and cache)
-    Binary(PathBuf),
+    /// Minimal catalog with specified path (checks relative path and cache)
+    Minimal(PathBuf),
     /// Random synthetic stars with specified seed and count
     Random { seed: u64, count: usize },
 }
@@ -178,9 +178,9 @@ pub fn get_stars_in_window(
             ))
         }
 
-        CatalogSource::Binary(path) => {
-            println!("Loading binary catalog from: {}", path.display());
-            let catalog = BinaryCatalog::load(&path)?;
+        CatalogSource::Minimal(path) => {
+            println!("Loading minimal catalog from: {}", path.display());
+            let catalog = MinimalCatalog::load(&path)?;
             println!("Loaded catalog: {}", catalog.description());
             println!("Total stars in catalog: {}", catalog.len());
 
@@ -274,12 +274,12 @@ fn generate_synthetic_stars(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogs::binary_catalog::{BinaryCatalog, MinimalStar};
+    use crate::catalogs::minimal_catalog::{MinimalCatalog, MinimalStar};
 
-    /// Test the StarCatalog trait with a simple binary catalog
+    /// Test the StarCatalog trait with a simple minimal catalog
     #[test]
     fn test_star_data() {
-        // Create a binary catalog
+        // Create a minimal catalog
         let stars = vec![
             MinimalStar::new(1, 100.0, 10.0, -1.5), // Sirius-like
             MinimalStar::new(2, 50.0, -20.0, 0.5),  // Canopus-like
@@ -288,7 +288,7 @@ mod tests {
             MinimalStar::new(5, 250.0, 60.0, 5.9),  // Dim
         ];
 
-        let catalog = BinaryCatalog::from_stars(stars, "Test catalog");
+        let catalog = MinimalCatalog::from_stars(stars, "Test catalog");
 
         // Test star_data iterator
         let star_data: Vec<StarData> = catalog.star_data().collect();

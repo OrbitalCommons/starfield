@@ -1,14 +1,14 @@
-//! Binary Star Catalog Viewer
+//! Minimal Star Catalog Viewer
 //!
-//! This utility displays information about binary star catalog files and can
+//! This utility displays information about minimal star catalog files and can
 //! convert them to CSV format if needed.
 //!
 //! Usage:
-//!   cargo run --example binary_catalog_viewer -- [options]
+//!   cargo run --example minimal_catalog_viewer -- [options]
 //!
 //! Options:
-//!   --input PATH       Binary catalog file to view
-//!   --convert PATH     Convert binary catalog to CSV at specified path
+//!   --input PATH       Minimal catalog file to view
+//!   --convert PATH     Convert minimal catalog to CSV at specified path
 //!   --magnitude FLOAT  Only include stars brighter than this magnitude when converting
 
 use std::env;
@@ -16,17 +16,17 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use starfield::catalogs::{BinaryCatalog, StarPosition};
+use starfield::catalogs::{MinimalCatalog, StarPosition};
 
-/// Print information about a binary catalog file
+/// Print information about a minimal catalog file
 fn view_catalog<P: AsRef<Path>>(catalog_path: P) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "Loading binary catalog: {}",
+        "Loading minimal catalog: {}",
         catalog_path.as_ref().display()
     );
 
     // Load the catalog
-    let catalog = BinaryCatalog::load(&catalog_path)?;
+    let catalog = MinimalCatalog::load(&catalog_path)?;
 
     // Print basic information
     println!("\nCatalog Information:");
@@ -111,20 +111,20 @@ fn view_catalog<P: AsRef<Path>>(catalog_path: P) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// Convert a binary catalog to CSV format
+/// Convert a minimal catalog to CSV format
 fn convert_to_csv<P: AsRef<Path>, Q: AsRef<Path>>(
     input_path: P,
     output_path: Q,
     magnitude_limit: Option<f64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "Converting binary catalog to CSV: {} -> {}",
+        "Converting minimal catalog to CSV: {} -> {}",
         input_path.as_ref().display(),
         output_path.as_ref().display()
     );
 
     // Load the catalog
-    let catalog = BinaryCatalog::load(input_path)?;
+    let catalog = MinimalCatalog::load(input_path)?;
 
     // Create output CSV file
     let output_file = File::create(output_path)?;
@@ -206,17 +206,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("Binary Star Catalog Viewer");
-    println!("==========================");
+    println!("Minimal Star Catalog Viewer");
+    println!("===========================");
 
     // Check if input path is provided
     if input_path.is_none() {
         println!("Usage:");
-        println!("  cargo run --example binary_catalog_viewer -- --input <binary_file> [options]");
+        println!(
+            "  cargo run --example minimal_catalog_viewer -- --input <catalog_file> [options]"
+        );
         println!("");
         println!("Options:");
-        println!("  --input PATH       Binary catalog file to view");
-        println!("  --convert PATH     Convert binary catalog to CSV at specified path");
+        println!("  --input PATH       Minimal catalog file to view");
+        println!("  --convert PATH     Convert minimal catalog to CSV at specified path");
         println!(
             "  --magnitude FLOAT  Only include stars brighter than this magnitude when converting"
         );

@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::f64::consts::PI;
 
-use super::{BinaryCatalog, MinimalStar};
+use super::{MinimalCatalog, MinimalStar};
 use crate::StarfieldError;
 
 /// Statistical star magnitude distribution parameters
@@ -136,7 +136,7 @@ impl SyntheticCatalogConfig {
     }
 
     /// Generate a synthetic star catalog with the configured parameters
-    pub fn generate(&self) -> Result<BinaryCatalog, StarfieldError> {
+    pub fn generate(&self) -> Result<MinimalCatalog, StarfieldError> {
         // Create seeded RNG
         let mut rng = StdRng::seed_from_u64(self.seed);
 
@@ -192,8 +192,8 @@ impl SyntheticCatalogConfig {
             );
         }
 
-        // Create and return the binary catalog
-        Ok(BinaryCatalog::from_stars(stars, &self.description))
+        // Create and return the minimal catalog
+        Ok(MinimalCatalog::from_stars(stars, &self.description))
     }
 
     /// Generate a star's position based on the spatial distribution model
@@ -320,7 +320,7 @@ pub fn create_synthetic_catalog(
     min_magnitude: f64,
     max_magnitude: f64,
     seed: u64,
-) -> Result<BinaryCatalog, StarfieldError> {
+) -> Result<MinimalCatalog, StarfieldError> {
     SyntheticCatalogConfig::new()
         .with_count(count)
         .with_magnitude_range(min_magnitude, max_magnitude)
@@ -337,7 +337,7 @@ pub fn create_fov_catalog(
     dec: f64,
     fov_deg: f64,
     seed: u64,
-) -> Result<BinaryCatalog, StarfieldError> {
+) -> Result<MinimalCatalog, StarfieldError> {
     SyntheticCatalogConfig::new()
         .with_count(count)
         .with_magnitude_range(min_magnitude, max_magnitude)
