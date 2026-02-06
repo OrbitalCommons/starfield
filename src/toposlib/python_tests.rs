@@ -366,6 +366,40 @@ rust.collect_string(str(lst))
         assert!(r10 > 0.05 && r10 < 0.15, "10° refraction {r10}");
     }
 
+    /// Refraction matches Skyfield's earthlib.refraction across altitude range
+    #[test]
+    fn test_refraction_matches_skyfield() {
+        let bridge = PyRustBridge::new().expect("Failed to create Python bridge");
+        let py_result = bridge
+            .run_py_to_json(
+                r#"
+from skyfield.earthlib import refraction
+import json
+
+alts = [-1.0, 0.0, 5.0, 10.0, 20.0, 45.0, 70.0, 89.0]
+results = []
+for a in alts:
+    r = float(refraction(a, 10.0, 1010.0))
+    results.append({"alt": a, "refraction": r})
+rust.collect_string(json.dumps(results))
+"#,
+            )
+            .expect("Python refraction failed");
+
+        let parsed: Vec<serde_json::Value> =
+            serde_json::from_str(&py_result).expect("JSON parse failed");
+
+        for entry in parsed {
+            let alt = entry["alt"].as_f64().unwrap();
+            let py_r = entry["refraction"].as_f64().unwrap();
+            let rust_r = crate::earthlib::refraction(alt, 10.0, 1010.0);
+            assert!(
+                (rust_r - py_r).abs() < 0.001,
+                "Refraction mismatch at alt={alt}: rust={rust_r} python={py_r}"
+            );
+        }
+    }
+
     /// Observer near the north pole produces valid barycentric position
     #[test]
     fn test_observer_near_pole_matches_skyfield() {
