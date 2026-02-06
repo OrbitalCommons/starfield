@@ -216,7 +216,7 @@ impl GeographicPosition {
 
     /// Apply atmospheric refraction correction to an observed altitude.
     ///
-    /// Uses the Bennett (1982) formula recommended by the Nautical Almanac Office.
+    /// Delegates to [`earthlib::refraction`](crate::earthlib::refraction).
     ///
     /// # Arguments
     /// * `altitude_degrees` — Observed altitude above horizon in degrees
@@ -225,19 +225,7 @@ impl GeographicPosition {
     ///
     /// Returns the refraction correction in degrees (always positive).
     pub fn refract(altitude_degrees: f64, temperature_c: f64, pressure_mbar: f64) -> f64 {
-        if altitude_degrees < -1.0 {
-            return 0.0;
-        }
-
-        // Bennett formula (Meeus, Astronomical Algorithms, eq 16.4)
-        let a = altitude_degrees;
-        let r = 1.0 / (a + 7.31 / (a + 4.4)).to_radians().tan();
-
-        // Correct for temperature and pressure
-        let correction = pressure_mbar / 1010.0 * 283.0 / (273.0 + temperature_c);
-
-        // Result in arcminutes → degrees
-        r / 60.0 * correction
+        crate::earthlib::refraction(altitude_degrees, temperature_c, pressure_mbar)
     }
 }
 

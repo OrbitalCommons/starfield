@@ -1,7 +1,9 @@
-//! Earth rotation and sidereal time computations
+//! Earth rotation, sidereal time, polar motion, and atmospheric refraction
 //!
 //! Implements the Earth Rotation Angle (ERA) per IAU 2000 Resolution B1.8,
-//! and Greenwich Mean Sidereal Time (GMST) per USNO Circular 179, Section 2.6.2.
+//! Greenwich Mean Sidereal Time (GMST) per USNO Circular 179, Section 2.6.2,
+//! polar motion from IERS finals2000A data,
+//! and atmospheric refraction per the Bennett (1982) formula.
 
 use crate::constants::J2000;
 
@@ -97,6 +99,51 @@ pub fn finals_to_polar_motion_table(
         .map(|&mjd| mjd + 2400000.5 + 69.184 / 86400.0)
         .collect();
     (tt_jds, xs.to_vec(), ys.to_vec())
+}
+
+const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
+
+/// Compute atmospheric refraction for an observed altitude.
+///
+/// Uses the Skyfield/Bennett formula: given the altitude at which a body
+/// is observed, returns the amount by which the atmosphere has raised it.
+///
+/// # Arguments
+/// * `alt_degrees` — Observed altitude above horizon in degrees
+/// * `temperature_c` — Air temperature in Celsius
+/// * `pressure_mbar` — Atmospheric pressure in millibars
+///
+/// Returns refraction in degrees. Returns 0.0 outside the range [-1°, 89.9°].
+pub fn refraction(alt_degrees: f64, temperature_c: f64, pressure_mbar: f64) -> f64 {
+    if !(-1.0..=89.9).contains(&alt_degrees) {
+        return 0.0;
+    }
+    let r = 0.016667 / ((alt_degrees + 7.31 / (alt_degrees + 4.4)) * DEG2RAD).tan();
+    r * (0.28 * pressure_mbar / (temperature_c + 273.0))
+}
+
+/// Apply atmospheric refraction to a true (geometric) altitude.
+///
+/// Given the true altitude of a body (before refraction), returns the
+/// altitude at which it appears due to atmospheric bending.
+///
+/// Uses iterative refinement (converges in 3-4 iterations).
+///
+/// # Arguments
+/// * `alt_degrees` — True geometric altitude in degrees
+/// * `temperature_c` — Air temperature in Celsius
+/// * `pressure_mbar` — Atmospheric pressure in millibars
+pub fn refract(alt_degrees: f64, temperature_c: f64, pressure_mbar: f64) -> f64 {
+    let mut refracted = alt_degrees;
+    for _ in 0..10 {
+        let delta = refraction(refracted, temperature_c, pressure_mbar);
+        let new = alt_degrees + delta;
+        if (new - refracted).abs() < 3.0e-5 {
+            return new;
+        }
+        refracted = new;
+    }
+    refracted
 }
 
 #[cfg(test)]
@@ -197,5 +244,53 @@ mod tests {
                 assert_relative_eq!(product[(i, j)], expected, epsilon = 1e-14);
             }
         }
+    }
+
+    #[test]
+    fn test_refraction_at_horizon() {
+        let r = refraction(0.0, 10.0, 1010.0);
+        assert!(
+            r > 0.4 && r < 0.7,
+            "Horizon refraction should be ~0.5°, got {r}"
+        );
+    }
+
+    #[test]
+    fn test_refraction_at_zenith() {
+        let r = refraction(90.0, 10.0, 1010.0);
+        assert_relative_eq!(r, 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_refraction_below_horizon() {
+        assert_relative_eq!(refraction(-5.0, 10.0, 1010.0), 0.0);
+    }
+
+    #[test]
+    fn test_refraction_at_45() {
+        let r = refraction(45.0, 10.0, 1010.0);
+        assert!(
+            r > 0.01 && r < 0.03,
+            "45° refraction should be ~0.02°, got {r}"
+        );
+    }
+
+    #[test]
+    fn test_refract_raises_altitude() {
+        let apparent = refract(0.0, 10.0, 1010.0);
+        assert!(
+            apparent > 0.0,
+            "Refracted altitude should be above true altitude"
+        );
+    }
+
+    #[test]
+    fn test_refract_roundtrip() {
+        // refract(true_alt) ≈ true_alt + refraction(true_alt)
+        // Exact roundtrip is not possible (inverse problem), but they should be close
+        let true_alt = 10.0;
+        let apparent = refract(true_alt, 15.0, 1013.25);
+        assert!(apparent > true_alt);
+        assert!(apparent - true_alt < 0.2);
     }
 }
