@@ -14,6 +14,7 @@ pub mod constants;
 pub mod coordinates;
 pub mod data;
 pub mod earthlib;
+pub mod elementslib;
 pub mod errors;
 pub mod framelib;
 pub mod image;
