@@ -25,7 +25,7 @@ pub enum Endian {
 /// Double Array File (DAF) reader
 pub struct DAF {
     pub path: PathBuf,
-    file: Mutex<File>,
+    file: Option<Mutex<File>>,
     /// File ID word (e.g. "DAF/SPK", "DAF/PCK")
     pub locidw: String,
     /// Number of double-precision components per summary
@@ -44,6 +44,8 @@ pub struct DAF {
     pub endian: Endian,
     /// Memory map for efficient access
     map: Option<Mmap>,
+    /// In-memory byte buffer (used by `from_bytes`)
+    bytes: Option<Vec<u8>>,
     /// Size of each summary entry in bytes
     summary_step: usize,
     /// Size of each summary entry in double-words
@@ -58,7 +60,7 @@ impl DAF {
 
         let mut daf = DAF {
             path: path_buf,
-            file: Mutex::new(file),
+            file: Some(Mutex::new(file)),
             locidw: String::new(),
             nd: 0,
             ni: 0,
@@ -68,12 +70,49 @@ impl DAF {
             ifname: String::new(),
             endian: Endian::Little,
             map: None,
+            bytes: None,
             summary_step: 0,
             summary_length: 0,
         };
 
         daf.read_header()?;
         daf.setup_memory_map()?;
+
+        daf.summary_length = daf.nd as usize + (daf.ni as usize).div_ceil(2);
+        daf.summary_step = 8 * daf.summary_length;
+
+        Ok(daf)
+    }
+
+    /// Create a DAF from an in-memory byte buffer
+    ///
+    /// Parses the same binary format as a file, but from `&[u8]`.
+    /// Useful with `include_bytes!()` for compile-time embedded assets.
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        if data.len() < RECORD_SIZE {
+            return Err(JplephemError::InvalidFormat(
+                "Data too small for a DAF file".to_string(),
+            ));
+        }
+
+        let mut daf = DAF {
+            path: PathBuf::from("<memory>"),
+            file: None,
+            locidw: String::new(),
+            nd: 0,
+            ni: 0,
+            fward: 0,
+            bward: 0,
+            free: 0,
+            ifname: String::new(),
+            endian: Endian::Little,
+            map: None,
+            bytes: Some(data.to_vec()),
+            summary_step: 0,
+            summary_length: 0,
+        };
+
+        daf.read_header()?;
 
         daf.summary_length = daf.nd as usize + (daf.ni as usize).div_ceil(2);
         daf.summary_step = 8 * daf.summary_length;
@@ -152,10 +191,12 @@ impl DAF {
     }
 
     fn setup_memory_map(&mut self) -> Result<()> {
-        let file = self.file.get_mut().unwrap();
-        if let Ok(file_clone) = file.try_clone() {
-            if let Ok(mmap) = unsafe { MmapOptions::new().map(&file_clone) } {
-                self.map = Some(mmap);
+        if let Some(ref mut mutex) = self.file {
+            let file = mutex.get_mut().unwrap();
+            if let Ok(file_clone) = file.try_clone() {
+                if let Ok(mmap) = unsafe { MmapOptions::new().map(&file_clone) } {
+                    self.map = Some(mmap);
+                }
             }
         }
         Ok(())
@@ -163,6 +204,8 @@ impl DAF {
 
     fn get_file(&self) -> Result<std::sync::MutexGuard<'_, std::fs::File>> {
         self.file
+            .as_ref()
+            .ok_or_else(|| JplephemError::Other("No file handle (in-memory DAF)".to_string()))?
             .lock()
             .map_err(|_| JplephemError::Other("Failed to lock file".to_string()))
     }
@@ -176,7 +219,18 @@ impl DAF {
         }
         let offset = (record_number - 1) * RECORD_SIZE;
 
-        // Try memory map first
+        // Try in-memory bytes first
+        if let Some(ref bytes) = self.bytes {
+            if offset + RECORD_SIZE <= bytes.len() {
+                return Ok(bytes[offset..offset + RECORD_SIZE].to_vec());
+            }
+            return Err(JplephemError::InvalidFormat(format!(
+                "Record {record_number} out of range for in-memory data ({} bytes)",
+                bytes.len()
+            )));
+        }
+
+        // Try memory map
         if let Some(ref map) = self.map {
             if offset + RECORD_SIZE <= map.len() {
                 return Ok(map[offset..offset + RECORD_SIZE].to_vec());
@@ -312,48 +366,51 @@ impl DAF {
 
         let length = end - start + 1;
 
-        // Try memory map first — read directly from mapped bytes
-        if let Some(ref map) = self.map {
-            let byte_start = (start - 1) * DOUBLE_SIZE;
-            let byte_end = byte_start + length * DOUBLE_SIZE;
+        // Helper: decode f64 values from a byte slice
+        let decode_slice = |slice: &[u8], count: usize| -> Vec<f64> {
+            let mut result = Vec::with_capacity(count);
+            for i in 0..count {
+                let pos = i * DOUBLE_SIZE;
+                let value = match self.endian {
+                    Endian::Big => BigEndian::read_f64(&slice[pos..pos + DOUBLE_SIZE]),
+                    Endian::Little => LittleEndian::read_f64(&slice[pos..pos + DOUBLE_SIZE]),
+                };
+                result.push(value);
+            }
+            result
+        };
 
+        let byte_start = (start - 1) * DOUBLE_SIZE;
+        let byte_end = byte_start + length * DOUBLE_SIZE;
+
+        // Try in-memory bytes first
+        if let Some(ref bytes) = self.bytes {
+            if byte_end <= bytes.len() {
+                return Ok(decode_slice(&bytes[byte_start..byte_end], length));
+            }
+            return Err(JplephemError::InvalidFormat(format!(
+                "Array bounds [{start}..{end}] out of range for in-memory data ({} bytes)",
+                bytes.len()
+            )));
+        }
+
+        // Try memory map
+        if let Some(ref map) = self.map {
             if byte_end <= map.len() {
-                let mut result = Vec::with_capacity(length);
-                for i in 0..length {
-                    let pos = byte_start + i * DOUBLE_SIZE;
-                    let value = match self.endian {
-                        Endian::Big => BigEndian::read_f64(&map[pos..pos + DOUBLE_SIZE]),
-                        Endian::Little => LittleEndian::read_f64(&map[pos..pos + DOUBLE_SIZE]),
-                    };
-                    result.push(value);
-                }
-                return Ok(result);
+                return Ok(decode_slice(&map[byte_start..byte_end], length));
             }
         }
 
         // Fall back to file I/O
         let mut file = self.get_file()?;
-        let byte_offset = (start - 1) * DOUBLE_SIZE;
-        let bytes_to_read = length * DOUBLE_SIZE;
-
-        file.seek(SeekFrom::Start(byte_offset as u64))
+        file.seek(SeekFrom::Start(byte_start as u64))
             .map_err(|e| io_err(&self.path, e))?;
 
-        let mut buffer = vec![0u8; bytes_to_read];
+        let mut buffer = vec![0u8; length * DOUBLE_SIZE];
         file.read_exact(&mut buffer)
             .map_err(|e| io_err(&self.path, e))?;
 
-        let mut result = Vec::with_capacity(length);
-        for i in 0..length {
-            let pos = i * DOUBLE_SIZE;
-            let value = match self.endian {
-                Endian::Big => BigEndian::read_f64(&buffer[pos..pos + DOUBLE_SIZE]),
-                Endian::Little => LittleEndian::read_f64(&buffer[pos..pos + DOUBLE_SIZE]),
-            };
-            result.push(value);
-        }
-
-        Ok(result)
+        Ok(decode_slice(&buffer, length))
     }
 
     /// Map an array of f64 values (alias for read_array, uses mmap when available)

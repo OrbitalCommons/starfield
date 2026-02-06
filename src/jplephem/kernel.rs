@@ -30,8 +30,29 @@ impl SpiceKernel {
     /// Open a BSP/SPK file and precompute segment chains
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let spk = SPK::open(path)?;
+        let chains = Self::build_chains(&spk);
+        Ok(SpiceKernel { spk, chains })
+    }
 
-        // Build adjacency graph from available segments
+    /// Create a SpiceKernel from an in-memory byte buffer
+    ///
+    /// Parses the same binary SPK/BSP format as `open`, but from `&[u8]`.
+    /// Useful with `include_bytes!()` for compile-time embedded ephemeris data.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// static BSP_DATA: &[u8] = include_bytes!("de421.bsp");
+    /// let mut kernel = SpiceKernel::from_bytes(BSP_DATA).unwrap();
+    /// ```
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        let spk = SPK::from_bytes(data)?;
+        let chains = Self::build_chains(&spk);
+        Ok(SpiceKernel { spk, chains })
+    }
+
+    /// Build BFS chains from SSB (0) to every reachable target body
+    fn build_chains(spk: &SPK) -> HashMap<i32, Vec<(i32, i32)>> {
         let mut adj: HashMap<i32, Vec<(i32, i32)>> = HashMap::new();
         for seg in &spk.segments {
             adj.entry(seg.center)
@@ -39,12 +60,10 @@ impl SpiceKernel {
                 .push((seg.center, seg.target));
         }
 
-        // Precompute chains from SSB (0) to every reachable target via BFS
         let mut chains = HashMap::new();
         let mut queue = std::collections::VecDeque::new();
         let mut parent: HashMap<i32, (i32, i32)> = HashMap::new();
 
-        // Start from SSB
         queue.push_back(0i32);
         parent.insert(0, (0, 0)); // sentinel
 
@@ -59,7 +78,6 @@ impl SpiceKernel {
             }
         }
 
-        // Reconstruct chains for each reachable body
         for &target_id in parent.keys() {
             if target_id == 0 {
                 continue;
@@ -69,7 +87,7 @@ impl SpiceKernel {
             while current != 0 {
                 if let Some(&(center, target)) = parent.get(&current) {
                     if center == 0 && target == 0 {
-                        break; // sentinel
+                        break;
                     }
                     chain.push((center, target));
                     current = center;
@@ -81,7 +99,7 @@ impl SpiceKernel {
             chains.insert(target_id, chain);
         }
 
-        Ok(SpiceKernel { spk, chains })
+        chains
     }
 
     /// Get a VectorFunction for a body by name or numeric ID string
