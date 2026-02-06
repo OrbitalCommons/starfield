@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate::jplephem::SpiceKernel;
-    use crate::pybridge::PyRustBridge;
+    use crate::pybridge::{PyRustBridge, PythonResult};
     use crate::time::Timescale;
 
     fn de421_kernel() -> SpiceKernel {
@@ -42,8 +42,14 @@ rust.collect_string(json.dumps({
             )
             .expect("Python ecliptic failed");
 
+        let inner_str = match PythonResult::try_from(py_result.as_str())
+            .expect("Failed to parse Python result")
+        {
+            PythonResult::String(s) => s,
+            other => panic!("Expected String result, got {:?}", other),
+        };
         let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+            serde_json::from_str(&inner_str).expect("JSON parse failed");
 
         let py_lon = parsed["lon_deg"].as_f64().unwrap();
         let py_lat = parsed["lat_deg"].as_f64().unwrap();
@@ -101,8 +107,14 @@ rust.collect_string(json.dumps({
             )
             .expect("Python galactic failed");
 
+        let inner_str = match PythonResult::try_from(py_result.as_str())
+            .expect("Failed to parse Python result")
+        {
+            PythonResult::String(s) => s,
+            other => panic!("Expected String result, got {:?}", other),
+        };
         let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+            serde_json::from_str(&inner_str).expect("JSON parse failed");
 
         let py_lon = parsed["lon_deg"].as_f64().unwrap();
         let py_lat = parsed["lat_deg"].as_f64().unwrap();
