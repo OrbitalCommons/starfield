@@ -7,6 +7,7 @@
 #[cfg(test)]
 mod tests {
     use crate::pybridge::bridge::PyRustBridge;
+    use crate::pybridge::helpers::PythonResult;
     use crate::pybridge::test_utils::{de421_kernel, parse_f64, parse_f64_triple};
     use crate::time::Timescale;
     use crate::toposlib::WGS84;
@@ -386,8 +387,14 @@ rust.collect_string(json.dumps(results))
             )
             .expect("Python refraction failed");
 
+        let inner_str = match PythonResult::try_from(py_result.as_str())
+            .expect("Failed to parse Python result")
+        {
+            PythonResult::String(s) => s,
+            other => panic!("Expected String result, got {:?}", other),
+        };
         let parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+            serde_json::from_str(&inner_str).expect("JSON parse failed");
 
         for entry in parsed {
             let alt = entry["alt"].as_f64().unwrap();
