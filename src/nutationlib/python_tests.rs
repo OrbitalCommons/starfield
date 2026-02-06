@@ -4,7 +4,14 @@
 mod tests {
     use crate::constants::{ASEC2RAD, J2000};
     use crate::nutationlib::iau2000a_nutation;
-    use crate::pybridge::PyRustBridge;
+    use crate::pybridge::{PyRustBridge, PythonResult};
+
+    fn unwrap_py_string(raw: &str) -> String {
+        match PythonResult::try_from(raw).expect("Failed to parse Python result") {
+            PythonResult::String(s) => s,
+            other => panic!("Expected String result, got {:?}", other),
+        }
+    }
 
     /// Full IAU2000A nutation matches Skyfield at J2000
     #[test]
@@ -28,8 +35,8 @@ rust.collect_string(json.dumps({
             )
             .expect("Python nutation failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let inner = unwrap_py_string(&py_result);
+        let parsed: serde_json::Value = serde_json::from_str(&inner).expect("JSON parse failed");
         let py_dpsi = parsed["dpsi"].as_f64().unwrap();
         let py_deps = parsed["deps"].as_f64().unwrap();
 
@@ -71,8 +78,8 @@ rust.collect_string(json.dumps({
             )
             .expect("Python nutation failed");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+        let inner = unwrap_py_string(&py_result);
+        let parsed: serde_json::Value = serde_json::from_str(&inner).expect("JSON parse failed");
         let py_dpsi = parsed["dpsi"].as_f64().unwrap();
         let py_deps = parsed["deps"].as_f64().unwrap();
 
@@ -112,8 +119,9 @@ rust.collect_string(json.dumps(results))
             )
             .expect("Python nutation multi-date failed");
 
+        let inner = unwrap_py_string(&py_result);
         let parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&py_result).expect("JSON parse failed");
+            serde_json::from_str(&inner).expect("JSON parse failed");
 
         for entry in &parsed {
             let jd = entry["jd"].as_f64().unwrap();
