@@ -11,6 +11,7 @@ pub mod almanac;
 pub mod catalogs;
 pub mod celestial;
 pub mod constants;
+pub mod constellationlib;
 pub mod coordinates;
 pub mod data;
 pub mod earthlib;
