@@ -415,6 +415,18 @@ impl Cartesian3 {
     }
 }
 
+impl From<[f64; 3]> for Cartesian3 {
+    fn from(arr: [f64; 3]) -> Self {
+        Cartesian3::new(arr[0], arr[1], arr[2])
+    }
+}
+
+impl From<Cartesian3> for [f64; 3] {
+    fn from(cart: Cartesian3) -> Self {
+        [cart.x, cart.y, cart.z]
+    }
+}
+
 // Arithmetic operations for convenience
 impl std::ops::Add for Cartesian3 {
     type Output = Cartesian3;
@@ -721,5 +733,28 @@ mod tests {
         assert_eq!(doubled.x, 0.123456789012345 * 2.0);
         assert_eq!(doubled.y, 0.987654321098765 * 2.0);
         assert_eq!(doubled.z, 0.555666777888999 * 2.0);
+    }
+
+    #[test]
+    fn test_from_array() {
+        let cart: Cartesian3 = [1.0, 2.0, 3.0].into();
+        assert_eq!(cart.x, 1.0);
+        assert_eq!(cart.y, 2.0);
+        assert_eq!(cart.z, 3.0);
+    }
+
+    #[test]
+    fn test_into_array() {
+        let cart = Cartesian3::new(4.0, 5.0, 6.0);
+        let arr: [f64; 3] = cart.into();
+        assert_eq!(arr, [4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_array_roundtrip() {
+        let original = [1.5, -2.7, 3.14];
+        let cart: Cartesian3 = original.into();
+        let back: [f64; 3] = cart.into();
+        assert_eq!(original, back);
     }
 }

@@ -94,6 +94,18 @@ impl Equatorial {
     }
 }
 
+impl From<[f64; 2]> for Equatorial {
+    fn from(arr: [f64; 2]) -> Self {
+        Equatorial::new(arr[0], arr[1])
+    }
+}
+
+impl From<Equatorial> for [f64; 2] {
+    fn from(eq: Equatorial) -> Self {
+        [eq.ra, eq.dec]
+    }
+}
+
 // Ecliptic coordinates
 #[derive(Debug, Clone, Copy)]
 pub struct Ecliptic {
@@ -767,5 +779,28 @@ mod tests {
         );
         assert_relative_eq!(galactic.lon, ec2ga.lon, epsilon = 1e-4);
         assert_relative_eq!(galactic.lat, ec2ga.lat, epsilon = 1e-4);
+    }
+
+    #[test]
+    fn test_equatorial_from_array() {
+        let eq: Equatorial = [1.0, 0.5].into();
+        assert_eq!(eq.ra, 1.0);
+        assert_eq!(eq.dec, 0.5);
+    }
+
+    #[test]
+    fn test_equatorial_into_array() {
+        let eq = Equatorial::new(1.0, 0.5);
+        let arr: [f64; 2] = eq.into();
+        assert_eq!(arr, [1.0, 0.5]);
+    }
+
+    #[test]
+    fn test_equatorial_array_roundtrip() {
+        let eq = Equatorial::new(2.0, -0.3);
+        let arr: [f64; 2] = eq.into();
+        let back: Equatorial = arr.into();
+        assert_eq!(eq.ra, back.ra);
+        assert_eq!(eq.dec, back.dec);
     }
 }
