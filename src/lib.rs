@@ -19,6 +19,7 @@ pub mod eclipselib;
 pub mod elementslib;
 pub mod errors;
 pub mod framelib;
+pub mod horizons;
 pub mod image;
 pub mod jplephem;
 pub mod keplerlib;
@@ -197,6 +198,34 @@ impl Loader {
     /// Load a timescale for time conversions
     pub fn timescale(&self) -> time::Timescale {
         time::Timescale::default()
+    }
+
+    /// Create a HORIZONS API client for querying JPL ephemeris data.
+    ///
+    /// HORIZONS computes positions, velocities, and observational quantities
+    /// for over 1.5 million solar system objects.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use starfield::horizons::{EphemerisRequest, Command, Center, TimeSpec};
+    ///
+    /// let loader = starfield::Loader::new();
+    /// let client = loader.horizons_client().unwrap();
+    ///
+    /// let request = EphemerisRequest::vectors(
+    ///     Command::MajorBody(499),
+    ///     Center::SolarSystemBarycenter,
+    ///     TimeSpec::Range {
+    ///         start: "2024-01-01".into(),
+    ///         stop: "2024-01-02".into(),
+    ///         step: "1 d".into(),
+    ///     },
+    /// );
+    /// let response = client.query(&request).unwrap();
+    /// ```
+    pub fn horizons_client(&self) -> Result<horizons::HorizonsClient> {
+        horizons::HorizonsClient::new()
     }
 }
 
