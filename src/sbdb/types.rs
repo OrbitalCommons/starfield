@@ -1,0 +1,296 @@
+//! Shared domain types for the JPL Small-Body Database API ecosystem.
+//!
+//! These types represent orbital elements, physical parameters, and object
+//! identification data common across multiple SBDB API endpoints.
+
+use serde::Deserialize;
+
+/// API response signature present in all SBDB API responses
+#[derive(Debug, Clone, Deserialize)]
+pub struct Signature {
+    pub source: String,
+    pub version: String,
+}
+
+/// Orbit class of a small body
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrbitClass {
+    /// IEO - Atira (Interior Earth Object)
+    Atira,
+    /// ATE - Aten
+    Aten,
+    /// APO - Apollo
+    Apollo,
+    /// AMO - Amor
+    Amor,
+    /// MCA - Mars-crossing Asteroid
+    MarsCrosser,
+    /// MBA - Main Belt Asteroid
+    MainBelt,
+    /// JFC - Jupiter-family Comet
+    JupiterFamilyComet,
+    /// HTC - Halley-type Comet
+    HalleyTypeComet,
+    /// ETc - Encke-type Comet
+    EnckeTypeComet,
+    /// COM - Comet (general)
+    Comet,
+    /// TJN - Jupiter Trojan
+    JupiterTrojan,
+    /// CEN - Centaur
+    Centaur,
+    /// TNO - Trans-Neptunian Object
+    TransNeptunian,
+    /// AST - Asteroid (generic)
+    Asteroid,
+    /// PAA - Parabolic Asteroid
+    ParabolicAsteroid,
+    /// HYA - Hyperbolic Asteroid
+    HyperbolicAsteroid,
+    /// Unrecognized orbit class code
+    Other(String),
+}
+
+impl OrbitClass {
+    /// Parse an orbit class from the SBDB API code string
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            "IEO" => OrbitClass::Atira,
+            "ATE" => OrbitClass::Aten,
+            "APO" => OrbitClass::Apollo,
+            "AMO" => OrbitClass::Amor,
+            "MCA" => OrbitClass::MarsCrosser,
+            "MBA" => OrbitClass::MainBelt,
+            "JFC" | "JFc" => OrbitClass::JupiterFamilyComet,
+            "HTC" => OrbitClass::HalleyTypeComet,
+            "ETc" => OrbitClass::EnckeTypeComet,
+            "COM" => OrbitClass::Comet,
+            "TJN" => OrbitClass::JupiterTrojan,
+            "CEN" => OrbitClass::Centaur,
+            "TNO" => OrbitClass::TransNeptunian,
+            "AST" => OrbitClass::Asteroid,
+            "PAA" => OrbitClass::ParabolicAsteroid,
+            "HYA" => OrbitClass::HyperbolicAsteroid,
+            other => OrbitClass::Other(other.to_string()),
+        }
+    }
+
+    /// Convert to the SBDB API code string
+    pub fn as_code(&self) -> &str {
+        match self {
+            OrbitClass::Atira => "IEO",
+            OrbitClass::Aten => "ATE",
+            OrbitClass::Apollo => "APO",
+            OrbitClass::Amor => "AMO",
+            OrbitClass::MarsCrosser => "MCA",
+            OrbitClass::MainBelt => "MBA",
+            OrbitClass::JupiterFamilyComet => "JFC",
+            OrbitClass::HalleyTypeComet => "HTC",
+            OrbitClass::EnckeTypeComet => "ETc",
+            OrbitClass::Comet => "COM",
+            OrbitClass::JupiterTrojan => "TJN",
+            OrbitClass::Centaur => "CEN",
+            OrbitClass::TransNeptunian => "TNO",
+            OrbitClass::Asteroid => "AST",
+            OrbitClass::ParabolicAsteroid => "PAA",
+            OrbitClass::HyperbolicAsteroid => "HYA",
+            OrbitClass::Other(code) => code.as_str(),
+        }
+    }
+}
+
+/// Small body identification data from the SBDB `object` field
+#[derive(Debug, Clone)]
+pub struct SmallBodyObject {
+    /// Primary designation (e.g., "433", "2015 TB145")
+    pub designation: String,
+    /// SPK-ID
+    pub spkid: Option<String>,
+    /// Full name (e.g., "433 Eros (A898 PA)")
+    pub fullname: Option<String>,
+    /// Short name (e.g., "433 Eros")
+    pub shortname: Option<String>,
+    /// Object kind code (an/au/cn/cu)
+    pub kind: Option<String>,
+    /// Is a Near-Earth Object
+    pub neo: bool,
+    /// Is a Potentially Hazardous Asteroid
+    pub pha: bool,
+    /// Orbit class
+    pub orbit_class: Option<OrbitClass>,
+}
+
+/// Orbital elements for a small body
+#[derive(Debug, Clone)]
+pub struct SmallBodyOrbit {
+    /// Orbit solution ID
+    pub orbit_id: Option<String>,
+    /// Epoch (Julian Date TDB)
+    pub epoch_jd: Option<f64>,
+    /// Eccentricity
+    pub eccentricity: Option<f64>,
+    /// Semi-major axis (AU)
+    pub semi_major_axis: Option<f64>,
+    /// Perihelion distance (AU)
+    pub perihelion_dist: Option<f64>,
+    /// Inclination (degrees)
+    pub inclination: Option<f64>,
+    /// Longitude of ascending node (degrees)
+    pub long_asc_node: Option<f64>,
+    /// Argument of perihelion (degrees)
+    pub arg_perihelion: Option<f64>,
+    /// Mean anomaly (degrees)
+    pub mean_anomaly: Option<f64>,
+    /// Time of perihelion passage (Julian Date TDB)
+    pub time_perihelion: Option<f64>,
+    /// Mean motion (degrees/day)
+    pub mean_motion: Option<f64>,
+    /// Orbital period (days)
+    pub period: Option<f64>,
+    /// Aphelion distance (AU)
+    pub aphelion_dist: Option<f64>,
+    /// Minimum orbit intersection distance with Earth (AU)
+    pub moid_au: Option<f64>,
+    /// First observation date
+    pub first_obs: Option<String>,
+    /// Last observation date
+    pub last_obs: Option<String>,
+    /// Number of observations used
+    pub n_obs_used: Option<u32>,
+    /// Data arc span (days)
+    pub data_arc_days: Option<u32>,
+    /// Orbit condition code (0-9, 0 is best)
+    pub condition_code: Option<String>,
+    /// RMS of weighted residuals
+    pub rms: Option<f64>,
+}
+
+/// Physical parameters for a small body
+#[derive(Debug, Clone)]
+pub struct PhysicalParams {
+    /// Absolute magnitude H
+    pub abs_magnitude_h: Option<f64>,
+    /// Magnitude slope parameter G
+    pub magnitude_slope_g: Option<f64>,
+    /// Diameter (km)
+    pub diameter_km: Option<f64>,
+    /// Geometric albedo
+    pub albedo: Option<f64>,
+    /// Rotation period (hours)
+    pub rotation_period_h: Option<f64>,
+    /// Spectral type
+    pub spectral_type: Option<String>,
+}
+
+/// A close approach record
+#[derive(Debug, Clone)]
+pub struct CloseApproachRecord {
+    /// Object designation
+    pub designation: String,
+    /// Orbit solution ID
+    pub orbit_id: Option<String>,
+    /// Julian Date (TDB) of closest approach
+    pub jd_tdb: Option<f64>,
+    /// Calendar date/time of closest approach
+    pub date: String,
+    /// Nominal close approach distance (AU)
+    pub dist_au: f64,
+    /// Minimum possible distance (AU)
+    pub dist_min_au: Option<f64>,
+    /// Maximum possible distance (AU)
+    pub dist_max_au: Option<f64>,
+    /// Relative velocity at close approach (km/s)
+    pub v_rel_km_s: Option<f64>,
+    /// Velocity at infinity (km/s)
+    pub v_inf_km_s: Option<f64>,
+    /// Absolute magnitude H
+    pub h_mag: Option<f64>,
+    /// Estimated diameter (km)
+    pub diameter_km: Option<f64>,
+    /// Full name of the object
+    pub fullname: Option<String>,
+    /// Close approach body (e.g., "Earth", "Mars")
+    pub body: String,
+}
+
+/// A fireball/bolide event record
+#[derive(Debug, Clone)]
+pub struct FireballRecord {
+    /// Date/time of peak brightness
+    pub date: String,
+    /// Radiated energy (joules * 10^10)
+    pub energy_joules_e10: Option<f64>,
+    /// Estimated total impact energy (kilotons of TNT)
+    pub impact_energy_kt: Option<f64>,
+    /// Latitude (degrees, positive = N)
+    pub latitude: Option<f64>,
+    /// Latitude direction (N or S)
+    pub lat_dir: Option<String>,
+    /// Longitude (degrees, positive = E)
+    pub longitude: Option<f64>,
+    /// Longitude direction (E or W)
+    pub lon_dir: Option<String>,
+    /// Altitude (km)
+    pub altitude_km: Option<f64>,
+    /// Velocity (km/s)
+    pub velocity_km_s: Option<f64>,
+}
+
+/// A Sentry impact risk entry
+#[derive(Debug, Clone)]
+pub struct SentryEntry {
+    /// Object designation
+    pub designation: String,
+    /// Full name
+    pub fullname: Option<String>,
+    /// Absolute magnitude H
+    pub h_mag: Option<f64>,
+    /// Estimated diameter (km)
+    pub diameter_km: Option<f64>,
+    /// Number of potential impacts
+    pub n_imp: Option<u32>,
+    /// Cumulative impact probability
+    pub ip: Option<f64>,
+    /// Cumulative Palermo Scale
+    pub ps_cum: Option<f64>,
+    /// Maximum Palermo Scale
+    pub ps_max: Option<f64>,
+    /// Maximum Torino Scale
+    pub ts_max: Option<u32>,
+    /// Last observation date
+    pub last_obs: Option<String>,
+    /// Range of potential impact years
+    pub ip_range: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_orbit_class_from_code() {
+        assert_eq!(OrbitClass::from_code("APO"), OrbitClass::Apollo);
+        assert_eq!(OrbitClass::from_code("AMO"), OrbitClass::Amor);
+        assert_eq!(OrbitClass::from_code("MBA"), OrbitClass::MainBelt);
+        assert_eq!(OrbitClass::from_code("TNO"), OrbitClass::TransNeptunian);
+        assert_eq!(
+            OrbitClass::from_code("XYZ"),
+            OrbitClass::Other("XYZ".to_string())
+        );
+    }
+
+    #[test]
+    fn test_orbit_class_roundtrip() {
+        let classes = [
+            OrbitClass::Atira,
+            OrbitClass::Aten,
+            OrbitClass::Apollo,
+            OrbitClass::Amor,
+            OrbitClass::MainBelt,
+            OrbitClass::Centaur,
+        ];
+        for class in &classes {
+            assert_eq!(&OrbitClass::from_code(class.as_code()), class);
+        }
+    }
+}
