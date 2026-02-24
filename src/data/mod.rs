@@ -6,6 +6,7 @@
 mod downloader;
 mod gaia_downloader;
 pub mod horizons;
+pub mod sbdb;
 
 pub use downloader::{
     download_hipparcos, download_or_cache, ensure_cache_dir, get_cache_dir, resolve_url,

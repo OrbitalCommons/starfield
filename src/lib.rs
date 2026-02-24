@@ -31,6 +31,7 @@ pub mod precessionlib;
 #[cfg(feature = "python-tests")]
 pub mod pybridge;
 pub mod relativity;
+pub mod sbdb;
 pub mod searchlib;
 pub mod sgp4lib;
 pub mod starlib;
@@ -226,6 +227,22 @@ impl Loader {
     /// ```
     pub fn horizons_client(&self) -> Result<horizons::HorizonsClient> {
         horizons::HorizonsClient::new()
+    }
+
+    /// Create a JPL Small-Body Database (SBDB) API client.
+    ///
+    /// Provides access to asteroid/comet data including orbital elements,
+    /// close approaches, fireballs, and impact risk monitoring.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let loader = starfield::Loader::new();
+    /// let client = loader.sbdb_client().unwrap();
+    /// let eros = client.lookup("Eros").unwrap();
+    /// ```
+    pub fn sbdb_client(&self) -> Result<sbdb::SbdbClient> {
+        sbdb::SbdbClient::new().map_err(|e| StarfieldError::DataError(e.to_string()))
     }
 }
 
