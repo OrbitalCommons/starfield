@@ -19,6 +19,8 @@
 //! let (ra, dec, dist) = mars_apparent.radec(None);
 //! ```
 
+pub mod ecliptic;
+
 #[cfg(all(test, feature = "python-tests"))]
 mod python_tests;
 

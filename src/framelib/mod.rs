@@ -85,13 +85,20 @@ pub static ECLIPTIC_J2000: EclipticJ2000Frame = EclipticJ2000Frame;
 pub static ECLIPTIC_OF_DATE: EclipticOfDateFrame = EclipticOfDateFrame;
 pub static GALACTIC: GalacticFrame = GalacticFrame;
 
-/// ECLIPJ2000 rotation matrix from the SPICE frame table.
-static ECLIPJ2000_MATRIX: Lazy<Matrix3<f64>> = Lazy::new(|| {
+/// ECLIPJ2000 rotation matrix: equatorial J2000 to ecliptic J2000.
+///
+/// This is a rotation about the X-axis by the mean obliquity at J2000
+/// (approximately 23.4393 degrees).
+pub static ECLIPJ2000_MATRIX: Lazy<Matrix3<f64>> = Lazy::new(|| {
     frame_rotations::INERTIAL_FRAMES
         .get("ECLIPJ2000")
         .copied()
         .unwrap_or_else(Matrix3::identity)
 });
+
+/// Inverse ECLIPJ2000 rotation matrix: ecliptic J2000 to equatorial J2000.
+pub static ECLIPJ2000_MATRIX_INV: Lazy<Matrix3<f64>> =
+    Lazy::new(|| ECLIPJ2000_MATRIX.try_inverse().unwrap());
 
 /// Galactic rotation matrix from the SPICE frame table.
 static GALACTIC_MATRIX: Lazy<Matrix3<f64>> = Lazy::new(|| {
