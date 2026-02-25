@@ -125,4 +125,28 @@ impl Ephemeris {
     pub fn kernel_mut(&mut self) -> &mut SpiceKernel {
         &mut self.kernel
     }
+
+    /// Compute the heliocentric ecliptic J2000 state vector of a body.
+    ///
+    /// Convenience method that computes the state of `body` relative to the
+    /// Sun and rotates into the ecliptic J2000 frame.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sv = ephemeris.ecliptic_state(Body::Mars, &t)?;
+    /// println!("Mars distance: {:.4} AU", sv.distance());
+    /// ```
+    pub fn ecliptic_state(
+        &mut self,
+        body: Body,
+        time: &Time,
+    ) -> Result<crate::positions::ecliptic::EclipticStateVector, PlanetError> {
+        Ok(crate::positions::ecliptic::EclipticStateVector::compute(
+            &mut self.kernel,
+            body.spice_name(),
+            "sun",
+            time,
+        )?)
+    }
 }
