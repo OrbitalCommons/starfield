@@ -236,6 +236,186 @@ pub struct FireballRecord {
     pub velocity_km_s: Option<f64>,
 }
 
+// ── Mission Design API Types ────────────────────────────────────────────────
+
+/// Optimality criterion for mission accessible target search (Mode A)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissionDesignCriterion {
+    /// Minimize departure V-infinity
+    MinDepartureVinf = 1,
+    /// Minimize arrival V-infinity
+    MinArrivalVinf = 2,
+    /// Minimize total delta-v
+    MinTotalDv = 3,
+    /// Minimize TOF + minimize departure V-infinity
+    MinTofMinDepVinf = 4,
+    /// Minimize TOF + minimize arrival V-infinity
+    MinTofMinArrVinf = 5,
+    /// Minimize TOF + minimize total delta-v
+    MinTofMinTotalDv = 6,
+}
+
+impl MissionDesignCriterion {
+    /// Convert to the integer value used by the API
+    pub fn as_api_value(&self) -> u32 {
+        *self as u32
+    }
+}
+
+/// Parameters for Mission Design accessible target search (Mode A)
+#[derive(Debug, Clone)]
+pub struct MissionAccessibleParams {
+    /// Optimality criterion for ranking results
+    pub crit: MissionDesignCriterion,
+    /// Launch year(s) to search
+    pub year: Vec<u32>,
+    /// Maximum number of records to return
+    pub lim: Option<u32>,
+}
+
+/// A single accessible target entry from the Mission Design API (Mode A)
+#[derive(Debug, Clone)]
+pub struct MissionAccessibleEntry {
+    /// Object name
+    pub name: String,
+    /// Primary designation
+    pub pdes: Option<String>,
+    /// Departure date (calendar)
+    pub date0: String,
+    /// Departure date (Modified Julian Date)
+    pub mjd0: f64,
+    /// Arrival date (calendar)
+    pub datef: String,
+    /// Arrival date (Modified Julian Date)
+    pub mjdf: f64,
+    /// Departure C3 (km^2/s^2)
+    pub c3_dep: f64,
+    /// Departure V-infinity (km/s)
+    pub vinf_dep: f64,
+    /// Arrival V-infinity (km/s)
+    pub vinf_arr: f64,
+    /// Total delta-v (km/s)
+    pub dv_tot: f64,
+    /// Time of flight (days)
+    pub tof: f64,
+    /// Orbit class code
+    pub class: Option<String>,
+    /// Absolute magnitude H
+    pub h_mag: Option<f64>,
+    /// Orbit condition code
+    pub condition_code: Option<String>,
+    /// Near-Earth Object flag
+    pub neo: bool,
+    /// Potentially Hazardous Asteroid flag
+    pub pha: bool,
+}
+
+/// Response from the Mission Design accessible target search (Mode A)
+#[derive(Debug, Clone)]
+pub struct MissionAccessibleResponse {
+    /// Number of records returned
+    pub count: u32,
+    /// Accessible target entries
+    pub data: Vec<MissionAccessibleEntry>,
+}
+
+/// Object info returned in a Mission Design query response (Mode Q)
+#[derive(Debug, Clone)]
+pub struct MissionQueryObject {
+    /// Primary designation
+    pub des: String,
+    /// Full name
+    pub fullname: Option<String>,
+    /// SPK-ID
+    pub spkid: Option<String>,
+    /// Orbit class
+    pub orbit_class: Option<String>,
+    /// Orbit condition code
+    pub condition_code: Option<String>,
+    /// Data arc (days)
+    pub data_arc: Option<String>,
+    /// Orbit solution ID
+    pub orbit_id: Option<String>,
+    /// Mission design orbit ID
+    pub md_orbit_id: Option<String>,
+}
+
+/// Response from the Mission Design query for a specific object (Mode Q)
+#[derive(Debug, Clone)]
+pub struct MissionQueryResponse {
+    /// Object identification
+    pub object: MissionQueryObject,
+    /// Field names for the selected missions table
+    pub fields: Vec<String>,
+    /// Selected mission data rows (tabular, matches fields order)
+    pub selected_missions: Vec<Vec<f64>>,
+}
+
+/// Parameters for Mission Design flyby/extension target search (Mode T)
+#[derive(Debug, Clone)]
+pub struct MissionFlybyParams {
+    /// Eccentricity of reference orbit
+    pub ec: f64,
+    /// Perihelion distance (AU)
+    pub qr: f64,
+    /// Time of perihelion passage (Julian Date)
+    pub tp: f64,
+    /// Inclination (degrees)
+    pub inc: f64,
+    /// Longitude of ascending node (degrees)
+    pub om: f64,
+    /// Argument of periapsis (degrees)
+    pub w: f64,
+    /// Start of time span (Julian Date)
+    pub jd0: f64,
+    /// End of time span (Julian Date)
+    pub jdf: f64,
+    /// Maximum number of output records
+    pub maxout: Option<u32>,
+    /// Maximum close-approach distance (AU)
+    pub maxdist: Option<f64>,
+}
+
+/// A flyby/extension target entry from the Mission Design API (Mode T)
+#[derive(Debug, Clone)]
+pub struct MissionFlybyEntry {
+    /// Full object name
+    pub full_name: String,
+    /// Primary designation
+    pub pdes: Option<String>,
+    /// SPK-ID
+    pub spkid: Option<String>,
+    /// Close approach date (calendar)
+    pub date: String,
+    /// Close approach date (Julian Date)
+    pub jd: f64,
+    /// Minimum distance (AU)
+    pub min_dist_au: f64,
+    /// Minimum distance (km)
+    pub min_dist_km: Option<f64>,
+    /// Relative velocity (km/s)
+    pub rel_vel: f64,
+    /// Orbit class code
+    pub class: Option<String>,
+    /// Absolute magnitude H
+    pub h_mag: Option<f64>,
+    /// Orbit condition code
+    pub condition_code: Option<String>,
+    /// Near-Earth Object flag
+    pub neo: bool,
+    /// Potentially Hazardous Asteroid flag
+    pub pha: bool,
+}
+
+/// Response from the Mission Design flyby/extension target search (Mode T)
+#[derive(Debug, Clone)]
+pub struct MissionFlybyResponse {
+    /// Number of records returned
+    pub count: u32,
+    /// Flyby target entries
+    pub data: Vec<MissionFlybyEntry>,
+}
+
 /// A Sentry impact risk entry
 #[derive(Debug, Clone)]
 pub struct SentryEntry {
@@ -366,6 +546,16 @@ mod tests {
             OrbitClass::from_code("XYZ"),
             OrbitClass::Other("XYZ".to_string())
         );
+    }
+
+    #[test]
+    fn test_mission_design_criterion_values() {
+        assert_eq!(MissionDesignCriterion::MinDepartureVinf.as_api_value(), 1);
+        assert_eq!(MissionDesignCriterion::MinArrivalVinf.as_api_value(), 2);
+        assert_eq!(MissionDesignCriterion::MinTotalDv.as_api_value(), 3);
+        assert_eq!(MissionDesignCriterion::MinTofMinDepVinf.as_api_value(), 4);
+        assert_eq!(MissionDesignCriterion::MinTofMinArrVinf.as_api_value(), 5);
+        assert_eq!(MissionDesignCriterion::MinTofMinTotalDv.as_api_value(), 6);
     }
 
     #[test]

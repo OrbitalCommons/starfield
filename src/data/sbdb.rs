@@ -17,6 +17,7 @@ const FIREBALL_API_URL: &str = "https://ssd-api.jpl.nasa.gov/fireball.api";
 const SENTRY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sentry.api";
 const SBDB_QUERY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbdb_query.api";
 const SCOUT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/scout.api";
+const MDESIGN_API_URL: &str = "https://ssd-api.jpl.nasa.gov/mdesign.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -84,6 +85,62 @@ impl SbdbClient {
         let params = [("des", des.to_string())];
         let json = self.get_json(SENTRY_API_URL, &params)?;
         parse_sentry_response(&json)
+    }
+
+    /// Find the most accessible small bodies for missions (Mode A).
+    ///
+    /// Returns targets ranked by the specified optimality criterion for the
+    /// given launch year(s).
+    pub fn mission_accessible(
+        &self,
+        params: &MissionAccessibleParams,
+    ) -> Result<MissionAccessibleResponse> {
+        let mut query: Vec<(String, String)> =
+            vec![("crit".into(), params.crit.as_api_value().to_string())];
+        if !params.year.is_empty() {
+            let years: Vec<String> = params.year.iter().map(|y| y.to_string()).collect();
+            query.push(("year".into(), years.join(",")));
+        }
+        if let Some(lim) = params.lim {
+            query.push(("lim".into(), lim.to_string()));
+        }
+        let json = self.get_json(MDESIGN_API_URL, &query)?;
+        parse_mission_accessible_response(&json)
+    }
+
+    /// Look up pre-computed mission parameters for a specific object (Mode Q).
+    ///
+    /// Returns selected mission trajectories with departure/arrival velocities,
+    /// phase angles, and other parameters.
+    pub fn mission_query(&self, des: &str) -> Result<MissionQueryResponse> {
+        let params = [("des", des.to_string())];
+        let json = self.get_json(MDESIGN_API_URL, &params)?;
+        parse_mission_query_response(&json)
+    }
+
+    /// Find small bodies approaching a given heliocentric orbit (Mode T).
+    ///
+    /// Searches for flyby/extension targets within a specified time span
+    /// and distance threshold.
+    pub fn mission_flyby(&self, params: &MissionFlybyParams) -> Result<MissionFlybyResponse> {
+        let mut query: Vec<(String, String)> = vec![
+            ("ec".into(), params.ec.to_string()),
+            ("qr".into(), params.qr.to_string()),
+            ("tp".into(), params.tp.to_string()),
+            ("in".into(), params.inc.to_string()),
+            ("om".into(), params.om.to_string()),
+            ("w".into(), params.w.to_string()),
+            ("jd0".into(), params.jd0.to_string()),
+            ("jdf".into(), params.jdf.to_string()),
+        ];
+        if let Some(maxout) = params.maxout {
+            query.push(("maxout".into(), maxout.to_string()));
+        }
+        if let Some(maxdist) = params.maxdist {
+            query.push(("maxdist".into(), maxdist.to_string()));
+        }
+        let json = self.get_json(MDESIGN_API_URL, &query)?;
+        parse_mission_flyby_response(&json)
     }
 
     /// Execute a bulk query against the small-body database.
@@ -749,6 +806,39 @@ fn parse_scout_summary_response(json: &Value) -> Result<ScoutSummaryResponse> {
     })
 }
 
+// ── Mission Design ──────────────────────────────────────────────────────────
+
+fn parse_mission_accessible_response(json: &Value) -> Result<MissionAccessibleResponse> {
+    let count = parse_count(json);
+
+    let fields = json
+        .get("fields")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = json.get("data").and_then(|d| d.as_array());
+    let index = build_field_index(&fields);
+    let mut entries = Vec::new();
+
+    if let Some(rows) = data {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                entries.push(parse_mission_accessible_row(&index, arr));
+            }
+        }
+    }
+
+    Ok(crate::sbdb::types::MissionAccessibleResponse {
+        count,
+        data: entries,
+    })
+}
+
 fn parse_scout_object_response(json: &Value) -> Result<ScoutObjectResponse> {
     let summary = parse_scout_summary_entry(json);
 
@@ -797,6 +887,138 @@ fn parse_scout_object_response(json: &Value) -> Result<ScoutObjectResponse> {
             orbits,
         },
     })
+}
+
+fn parse_mission_accessible_row(
+    index: &HashMap<&str, usize>,
+    row: &[Value],
+) -> MissionAccessibleEntry {
+    let neo_str = get_str(index, row, "neo").unwrap_or_default();
+    let pha_str = get_str(index, row, "pha").unwrap_or_default();
+
+    MissionAccessibleEntry {
+        name: get_str(index, row, "name").unwrap_or_default(),
+        pdes: get_str(index, row, "pdes"),
+        date0: get_str(index, row, "date0").unwrap_or_default(),
+        mjd0: get_f64(index, row, "MJD0").unwrap_or(0.0),
+        datef: get_str(index, row, "datef").unwrap_or_default(),
+        mjdf: get_f64(index, row, "MJDF").unwrap_or(0.0),
+        c3_dep: get_f64(index, row, "c3_dep").unwrap_or(0.0),
+        vinf_dep: get_f64(index, row, "vinf_dep").unwrap_or(0.0),
+        vinf_arr: get_f64(index, row, "vinf_arr").unwrap_or(0.0),
+        dv_tot: get_f64(index, row, "dv_tot").unwrap_or(0.0),
+        tof: get_f64(index, row, "tof").unwrap_or(0.0),
+        class: get_str(index, row, "class"),
+        h_mag: get_f64(index, row, "H"),
+        condition_code: get_str(index, row, "condition_code"),
+        neo: neo_str == "Y",
+        pha: pha_str == "Y",
+    }
+}
+
+fn parse_mission_query_response(json: &Value) -> Result<MissionQueryResponse> {
+    let obj = json
+        .get("object")
+        .ok_or_else(|| StarfieldError::DataError("Missing 'object' in mdesign response".into()))?;
+
+    let object = MissionQueryObject {
+        des: json_str(obj, "des").unwrap_or_default(),
+        fullname: json_str(obj, "fullname"),
+        spkid: json_str(obj, "spkid"),
+        orbit_class: json_str(obj, "orbit_class"),
+        condition_code: json_str(obj, "condition_code"),
+        data_arc: json_str(obj, "data_arc"),
+        orbit_id: json_str(obj, "orbit_id"),
+        md_orbit_id: json_str(obj, "md_orbit_id"),
+    };
+
+    let fields = json
+        .get("fields")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let selected_missions = json
+        .get("selectedMissions")
+        .and_then(|sm| sm.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.as_array().map(|arr| {
+                        arr.iter()
+                            .map(|v| {
+                                v.as_f64().unwrap_or_else(|| {
+                                    v.as_str().and_then(|s| s.parse().ok()).unwrap_or(f64::NAN)
+                                })
+                            })
+                            .collect()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(crate::sbdb::types::MissionQueryResponse {
+        object,
+        fields,
+        selected_missions,
+    })
+}
+
+fn parse_mission_flyby_response(json: &Value) -> Result<MissionFlybyResponse> {
+    let count = parse_count(json);
+
+    let fields = json
+        .get("fields")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = json.get("data").and_then(|d| d.as_array());
+    let index = build_field_index(&fields);
+    let mut entries = Vec::new();
+
+    if let Some(rows) = data {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                entries.push(parse_mission_flyby_row(&index, arr));
+            }
+        }
+    }
+
+    Ok(crate::sbdb::types::MissionFlybyResponse {
+        count,
+        data: entries,
+    })
+}
+
+fn parse_mission_flyby_row(index: &HashMap<&str, usize>, row: &[Value]) -> MissionFlybyEntry {
+    let neo_str = get_str(index, row, "neo").unwrap_or_default();
+    let pha_str = get_str(index, row, "pha").unwrap_or_default();
+
+    MissionFlybyEntry {
+        full_name: get_str(index, row, "full_name").unwrap_or_default(),
+        pdes: get_str(index, row, "pdes"),
+        spkid: get_str(index, row, "spkid"),
+        date: get_str(index, row, "date").unwrap_or_default(),
+        jd: get_f64(index, row, "jd").unwrap_or(0.0),
+        min_dist_au: get_f64(index, row, "min_dist_au").unwrap_or(0.0),
+        min_dist_km: get_f64(index, row, "min_dist_km"),
+        rel_vel: get_f64(index, row, "rel_vel").unwrap_or(0.0),
+        class: get_str(index, row, "class"),
+        h_mag: get_f64(index, row, "H"),
+        condition_code: get_str(index, row, "condition_code"),
+        neo: neo_str == "Y",
+        pha: pha_str == "Y",
+    }
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────────────
@@ -1313,6 +1535,153 @@ mod tests {
             .head(CAD_API_URL)
             .send()
             .expect("CAD API unreachable");
+        assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    fn test_parse_mission_accessible_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "2",
+            "fields": ["name", "pdes", "date0", "MJD0", "datef", "MJDF", "c3_dep", "vinf_dep", "vinf_arr", "dv_tot", "tof", "class", "H", "condition_code", "neo", "pha"],
+            "data": [
+                ["2000 SG344", "2000 SG344", "2029-Apr-17", "62573.0", "2030-Jan-08", "62839.0", "0.112", "0.335", "0.674", "1.009", "266.0", "APO", "24.7", "1", "Y", "N"],
+                ["2015 JD3", "2015 JD3", "2029-May-01", "62587.0", "2030-Mar-22", "62912.0", "0.542", "0.737", "1.231", "1.968", "325.0", "APO", "28.4", "6", "Y", "N"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_mission_accessible_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.data.len(), 2);
+        assert_eq!(resp.data[0].name, "2000 SG344");
+        assert_eq!(resp.data[0].pdes.as_deref(), Some("2000 SG344"));
+        assert_eq!(resp.data[0].date0, "2029-Apr-17");
+        assert!((resp.data[0].mjd0 - 62573.0).abs() < 1e-10);
+        assert!((resp.data[0].c3_dep - 0.112).abs() < 1e-10);
+        assert!((resp.data[0].vinf_dep - 0.335).abs() < 1e-10);
+        assert!((resp.data[0].vinf_arr - 0.674).abs() < 1e-10);
+        assert!((resp.data[0].dv_tot - 1.009).abs() < 1e-10);
+        assert!((resp.data[0].tof - 266.0).abs() < 1e-10);
+        assert_eq!(resp.data[0].class.as_deref(), Some("APO"));
+        assert!((resp.data[0].h_mag.unwrap() - 24.7).abs() < 0.1);
+        assert_eq!(resp.data[0].condition_code.as_deref(), Some("1"));
+        assert!(resp.data[0].neo);
+        assert!(!resp.data[0].pha);
+        assert!(!resp.data[1].pha);
+    }
+
+    #[test]
+    fn test_parse_mission_query_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "object": {
+                "des": "433",
+                "fullname": "433 Eros (A898 PA)",
+                "spkid": "2000433",
+                "orbit_class": "AMO",
+                "condition_code": "0",
+                "data_arc": "46857",
+                "orbit_id": "780",
+                "md_orbit_id": "780"
+            },
+            "fields": ["MJD0", "MJDf", "vinf_dep", "vinf_arr", "phase_ang", "earth_dist", "elong_arr", "decl_dep", "approach_ang"],
+            "selectedMissions": [
+                [60300.0, 60500.0, 5.12, 8.45, 32.1, 1.23, 145.6, -12.3, 78.9],
+                [60400.0, 60650.0, 4.98, 7.32, 28.5, 0.98, 160.2, 5.6, 82.1]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_mission_query_response(&json).unwrap();
+        assert_eq!(resp.object.des, "433");
+        assert_eq!(resp.object.fullname.as_deref(), Some("433 Eros (A898 PA)"));
+        assert_eq!(resp.object.spkid.as_deref(), Some("2000433"));
+        assert_eq!(resp.object.orbit_class.as_deref(), Some("AMO"));
+        assert_eq!(resp.object.condition_code.as_deref(), Some("0"));
+        assert_eq!(resp.object.orbit_id.as_deref(), Some("780"));
+        assert_eq!(resp.fields.len(), 9);
+        assert_eq!(resp.fields[0], "MJD0");
+        assert_eq!(resp.selected_missions.len(), 2);
+        assert!((resp.selected_missions[0][0] - 60300.0).abs() < 1e-10);
+        assert!((resp.selected_missions[0][2] - 5.12).abs() < 1e-10);
+        assert!((resp.selected_missions[1][3] - 7.32).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_parse_mission_flyby_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "2",
+            "fields": ["full_name", "pdes", "spkid", "date", "jd", "min_dist_au", "min_dist_km", "rel_vel", "class", "H", "condition_code", "neo", "pha"],
+            "data": [
+                ["(2015 JD3)", "2015 JD3", "3713011", "2030-Mar-22", "2462912.5", "0.00321", "480230", "2.15", "APO", "28.4", "6", "Y", "N"],
+                ["433 Eros (A898 PA)", "433", "2000433", "2030-Jun-10", "2462992.5", "0.15234", "22785000", "8.91", "AMO", "11.2", "0", "Y", "N"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_mission_flyby_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.data.len(), 2);
+        assert_eq!(resp.data[0].full_name, "(2015 JD3)");
+        assert_eq!(resp.data[0].pdes.as_deref(), Some("2015 JD3"));
+        assert_eq!(resp.data[0].spkid.as_deref(), Some("3713011"));
+        assert_eq!(resp.data[0].date, "2030-Mar-22");
+        assert!((resp.data[0].jd - 2462912.5).abs() < 1e-10);
+        assert!((resp.data[0].min_dist_au - 0.00321).abs() < 1e-10);
+        assert!((resp.data[0].min_dist_km.unwrap() - 480230.0).abs() < 1.0);
+        assert!((resp.data[0].rel_vel - 2.15).abs() < 1e-10);
+        assert_eq!(resp.data[0].class.as_deref(), Some("APO"));
+        assert!(resp.data[0].neo);
+        assert!(!resp.data[0].pha);
+        assert_eq!(resp.data[1].full_name, "433 Eros (A898 PA)");
+        assert!((resp.data[1].h_mag.unwrap() - 11.2).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_parse_mission_accessible_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "0",
+            "fields": ["name", "date0", "MJD0"],
+            "data": []
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_mission_accessible_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.data.is_empty());
+    }
+
+    #[test]
+    fn test_parse_mission_flyby_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "0",
+            "fields": ["full_name", "date", "jd"],
+            "data": []
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_mission_flyby_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.data.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mdesign_api_reachable() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .head(MDESIGN_API_URL)
+            .send()
+            .expect("Mission Design API unreachable");
         assert!(resp.status().is_success() || resp.status().as_u16() == 405);
     }
 }

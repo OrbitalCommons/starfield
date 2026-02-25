@@ -9,6 +9,7 @@
 //! - **Fireball** — atmospheric impact events
 //! - **Sentry** — Earth impact risk monitoring
 //! - **Scout** — NEOCP unconfirmed object analysis
+//! - **Mission Design** — trajectory parameters for small-body missions
 //!
 //! No API key or authentication is required.
 //!
@@ -44,7 +45,9 @@ pub use crate::data::sbdb::{
 };
 
 pub use types::{
-    CloseApproachRecord, FireballRecord, OrbitClass, PhysicalParams, ScoutObjectDetail,
-    ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry,
-    Signature, SmallBodyObject, SmallBodyOrbit,
+    CloseApproachRecord, FireballRecord, MissionAccessibleEntry, MissionAccessibleParams,
+    MissionAccessibleResponse, MissionDesignCriterion, MissionFlybyEntry, MissionFlybyParams,
+    MissionFlybyResponse, MissionQueryObject, MissionQueryResponse, OrbitClass, PhysicalParams,
+    ScoutObjectDetail, ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry,
+    ScoutSummaryResponse, SentryEntry, Signature, SmallBodyObject, SmallBodyOrbit,
 };
