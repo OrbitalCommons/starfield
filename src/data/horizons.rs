@@ -27,6 +27,260 @@ const HORIZONS_LOOKUP_URL: &str = "https://ssd.jpl.nasa.gov/api/horizons_lookup.
 /// so we use a conservative threshold to leave room for encoding overhead.
 const AUTO_POST_URL_THRESHOLD: usize = 1500;
 
+/// Ecliptic reference frame for user-defined orbital elements
+#[derive(Debug, Clone, Copy)]
+pub enum EclipticFrame {
+    /// J2000 ecliptic and equinox
+    J2000,
+    /// B1950 ecliptic and equinox
+    B1950,
+}
+
+impl EclipticFrame {
+    fn as_str(&self) -> &'static str {
+        match self {
+            EclipticFrame::J2000 => "J2000",
+            EclipticFrame::B1950 => "B1950",
+        }
+    }
+}
+
+/// One of three element-set parameterizations accepted by HORIZONS
+/// for user-defined heliocentric ecliptic orbital elements.
+#[derive(Debug, Clone)]
+pub enum ElementSet {
+    /// Periapsis distance (AU) and time of perihelion passage (JD TDB)
+    Periapsis {
+        /// Perihelion distance in AU
+        perihelion_dist: f64,
+        /// Time of perihelion passage (Julian Date, TDB)
+        time_perihelion: f64,
+    },
+    /// Semi-major axis (AU) and mean anomaly (degrees)
+    SemiMajor {
+        /// Semi-major axis in AU
+        semi_major_axis: f64,
+        /// Mean anomaly in degrees
+        mean_anomaly: f64,
+    },
+    /// Mean motion (degrees/day) and mean anomaly (degrees)
+    MeanMotion {
+        /// Mean motion in degrees/day
+        mean_motion: f64,
+        /// Mean anomaly in degrees
+        mean_anomaly: f64,
+    },
+}
+
+/// Optional magnitude parameters for user-defined asteroid objects
+#[derive(Debug, Clone)]
+pub struct AsteroidMagnitude {
+    /// Absolute magnitude parameter H
+    pub h: f64,
+    /// Magnitude slope parameter G (default 0.15)
+    pub g: f64,
+}
+
+/// Optional magnitude parameters for user-defined comet objects
+#[derive(Debug, Clone)]
+pub struct CometMagnitude {
+    /// Total absolute magnitude
+    pub m1: f64,
+    /// Nuclear absolute magnitude
+    pub m2: f64,
+    /// Total magnitude scaling factor
+    pub k1: f64,
+    /// Nuclear magnitude scaling factor
+    pub k2: f64,
+}
+
+/// User-defined orbital elements for generating ephemerides of
+/// hypothetical or custom objects via the HORIZONS API.
+///
+/// HORIZONS accepts heliocentric ecliptic orbital elements with three
+/// possible parameterizations for the orbit shape (see [`ElementSet`]).
+///
+/// # Example
+///
+/// ```
+/// use starfield::horizons::{UserDefinedElements, ElementSet, EclipticFrame};
+///
+/// // Eros-like elements using semi-major axis + mean anomaly
+/// let elements = UserDefinedElements::from_semi_major(
+///     2451544.5,  // epoch (J2000.0)
+///     0.2229,     // eccentricity
+///     1.4583,     // semi-major axis (AU)
+///     178.8,      // mean anomaly (degrees)
+///     304.3,      // longitude of ascending node (degrees)
+///     178.9,      // argument of perihelion (degrees)
+///     10.83,      // inclination (degrees)
+/// );
+/// ```
+#[derive(Debug, Clone)]
+pub struct UserDefinedElements {
+    /// User-chosen object name
+    pub object_name: String,
+    /// Epoch of osculating elements (Julian Date, TDB)
+    pub epoch: f64,
+    /// Eccentricity (dimensionless)
+    pub eccentricity: f64,
+    /// Orbit shape parameterization
+    pub element_set: ElementSet,
+    /// Inclination in degrees
+    pub inclination: f64,
+    /// Longitude of ascending node in degrees
+    pub long_asc_node: f64,
+    /// Argument of perihelion in degrees
+    pub arg_perihelion: f64,
+    /// Ecliptic reference frame (default J2000)
+    pub ecliptic_frame: EclipticFrame,
+    /// Optional asteroid magnitude parameters
+    pub asteroid_magnitude: Option<AsteroidMagnitude>,
+    /// Optional comet magnitude parameters
+    pub comet_magnitude: Option<CometMagnitude>,
+}
+
+impl UserDefinedElements {
+    /// Create user-defined elements using periapsis distance and time of perihelion.
+    ///
+    /// This corresponds to HORIZONS element set A (QR + TP).
+    pub fn from_periapsis(
+        epoch: f64,
+        eccentricity: f64,
+        perihelion_dist: f64,
+        time_perihelion: f64,
+        long_asc_node: f64,
+        arg_perihelion: f64,
+        inclination: f64,
+    ) -> Self {
+        Self {
+            object_name: "UserObject".to_string(),
+            epoch,
+            eccentricity,
+            element_set: ElementSet::Periapsis {
+                perihelion_dist,
+                time_perihelion,
+            },
+            inclination,
+            long_asc_node,
+            arg_perihelion,
+            ecliptic_frame: EclipticFrame::J2000,
+            asteroid_magnitude: None,
+            comet_magnitude: None,
+        }
+    }
+
+    /// Create user-defined elements using semi-major axis and mean anomaly.
+    ///
+    /// This corresponds to HORIZONS element set B (A + MA).
+    pub fn from_semi_major(
+        epoch: f64,
+        eccentricity: f64,
+        semi_major_axis: f64,
+        mean_anomaly: f64,
+        long_asc_node: f64,
+        arg_perihelion: f64,
+        inclination: f64,
+    ) -> Self {
+        Self {
+            object_name: "UserObject".to_string(),
+            epoch,
+            eccentricity,
+            element_set: ElementSet::SemiMajor {
+                semi_major_axis,
+                mean_anomaly,
+            },
+            inclination,
+            long_asc_node,
+            arg_perihelion,
+            ecliptic_frame: EclipticFrame::J2000,
+            asteroid_magnitude: None,
+            comet_magnitude: None,
+        }
+    }
+
+    /// Set the object name (returned in HORIZONS output headers)
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.object_name = name.to_string();
+        self
+    }
+
+    /// Set asteroid magnitude parameters (H, G)
+    pub fn with_asteroid_magnitude(mut self, h: f64, g: f64) -> Self {
+        self.asteroid_magnitude = Some(AsteroidMagnitude { h, g });
+        self.comet_magnitude = None;
+        self
+    }
+
+    /// Set comet magnitude parameters (M1, M2, K1, K2)
+    pub fn with_comet_magnitude(mut self, m1: f64, m2: f64, k1: f64, k2: f64) -> Self {
+        self.comet_magnitude = Some(CometMagnitude { m1, m2, k1, k2 });
+        self.asteroid_magnitude = None;
+        self
+    }
+
+    /// Set the ecliptic reference frame
+    pub fn with_ecliptic_frame(mut self, frame: EclipticFrame) -> Self {
+        self.ecliptic_frame = frame;
+        self
+    }
+
+    /// Serialize the orbital elements as HORIZONS API query parameters
+    fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        params.push(("OBJECT".into(), format!("'{}'", self.object_name)));
+        params.push(("EPOCH".into(), format!("{}", self.epoch)));
+        params.push((
+            "ECLIP".into(),
+            format!("'{}'", self.ecliptic_frame.as_str()),
+        ));
+        params.push(("EC".into(), format!("{}", self.eccentricity)));
+
+        match &self.element_set {
+            ElementSet::Periapsis {
+                perihelion_dist,
+                time_perihelion,
+            } => {
+                params.push(("QR".into(), format!("{}", perihelion_dist)));
+                params.push(("TP".into(), format!("{}", time_perihelion)));
+            }
+            ElementSet::SemiMajor {
+                semi_major_axis,
+                mean_anomaly,
+            } => {
+                params.push(("A".into(), format!("{}", semi_major_axis)));
+                params.push(("MA".into(), format!("{}", mean_anomaly)));
+            }
+            ElementSet::MeanMotion {
+                mean_motion,
+                mean_anomaly,
+            } => {
+                params.push(("N".into(), format!("{}", mean_motion)));
+                params.push(("MA".into(), format!("{}", mean_anomaly)));
+            }
+        }
+
+        params.push(("OM".into(), format!("{}", self.long_asc_node)));
+        params.push(("W".into(), format!("{}", self.arg_perihelion)));
+        params.push(("IN".into(), format!("{}", self.inclination)));
+
+        if let Some(ref mag) = self.asteroid_magnitude {
+            params.push(("H".into(), format!("{}", mag.h)));
+            params.push(("G".into(), format!("{}", mag.g)));
+        }
+
+        if let Some(ref mag) = self.comet_magnitude {
+            params.push(("M1".into(), format!("{}", mag.m1)));
+            params.push(("M2".into(), format!("{}", mag.m2)));
+            params.push(("K1".into(), format!("{}", mag.k1)));
+            params.push(("K2".into(), format!("{}", mag.k2)));
+        }
+
+        params
+    }
+}
+
 /// Target body specification for the COMMAND parameter.
 ///
 /// Different syntax rules apply to major bodies vs small bodies.
@@ -48,6 +302,8 @@ pub enum Command {
     /// The string contains the full TLE: optional name line, line 1, and line 2,
     /// separated by newlines. HORIZONS accepts up to 600 TLE pairs.
     Tle(String),
+    /// User-defined object from custom orbital elements
+    UserDefined(UserDefinedElements),
 }
 
 impl Command {
@@ -60,6 +316,16 @@ impl Command {
             Command::Designation(des) => format!("DES={};", des),
             Command::Name(name) => format!("{};", name),
             Command::Tle(_) => "TLE".to_string(),
+            Command::UserDefined(_) => ";".to_string(),
+        }
+    }
+
+    /// Return additional query parameters for user-defined objects.
+    /// Returns an empty vec for all other command types.
+    fn extra_params(&self) -> Vec<(String, String)> {
+        match self {
+            Command::UserDefined(elements) => elements.to_query_params(),
+            _ => Vec::new(),
         }
     }
 
@@ -496,6 +762,9 @@ impl EphemerisRequest {
             format!("'{}'", self.center.to_query_value()),
         ));
 
+        // Append user-defined element parameters if present
+        params.extend(self.command.extra_params());
+
         match &self.time_spec {
             TimeSpec::Range { start, stop, step } => {
                 params.push(("START_TIME".into(), format!("'{}'", start)));
@@ -931,6 +1200,14 @@ mod tests {
     }
 
     #[test]
+    fn test_command_user_defined() {
+        let elements = UserDefinedElements::from_semi_major(
+            2451544.5, 0.2229, 1.4583, 178.8, 304.3, 178.9, 10.83,
+        );
+        assert_eq!(Command::UserDefined(elements).to_query_value(), ";");
+    }
+
+    #[test]
     fn test_center_values() {
         assert_eq!(Center::Geocentric.to_query_value(), "500@399");
         assert_eq!(Center::SolarSystemBarycenter.to_query_value(), "500@0");
@@ -1224,6 +1501,150 @@ mod tests {
     fn test_ca_table_type_as_str() {
         assert_eq!(CaTableType::Standard.as_str(), "STANDARD");
         assert_eq!(CaTableType::Extended.as_str(), "EXTENDED");
+    }
+
+    #[test]
+    fn test_user_defined_periapsis_params() {
+        let elements = UserDefinedElements::from_periapsis(
+            2451544.5, // epoch J2000.0
+            0.9671,    // eccentricity
+            0.5871,    // perihelion distance AU
+            2451000.5, // time of perihelion JD
+            58.15,     // longitude of ascending node
+            111.87,    // argument of perihelion
+            162.26,    // inclination
+        );
+        let params = elements.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("OBJECT").unwrap(), "'UserObject'");
+        assert_eq!(map.get("EPOCH").unwrap(), "2451544.5");
+        assert_eq!(map.get("ECLIP").unwrap(), "'J2000'");
+        assert_eq!(map.get("EC").unwrap(), "0.9671");
+        assert_eq!(map.get("QR").unwrap(), "0.5871");
+        assert_eq!(map.get("TP").unwrap(), "2451000.5");
+        assert_eq!(map.get("OM").unwrap(), "58.15");
+        assert_eq!(map.get("W").unwrap(), "111.87");
+        assert_eq!(map.get("IN").unwrap(), "162.26");
+        assert!(map.get("A").is_none());
+        assert!(map.get("MA").is_none());
+        assert!(map.get("N").is_none());
+    }
+
+    #[test]
+    fn test_user_defined_semi_major_params() {
+        let elements = UserDefinedElements::from_semi_major(
+            2451544.5, 0.2229, 1.4583, 178.8, 304.3, 178.9, 10.83,
+        )
+        .with_name("Eros")
+        .with_asteroid_magnitude(11.16, 0.46);
+
+        let params = elements.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("OBJECT").unwrap(), "'Eros'");
+        assert_eq!(map.get("EPOCH").unwrap(), "2451544.5");
+        assert_eq!(map.get("ECLIP").unwrap(), "'J2000'");
+        assert_eq!(map.get("EC").unwrap(), "0.2229");
+        assert_eq!(map.get("A").unwrap(), "1.4583");
+        assert_eq!(map.get("MA").unwrap(), "178.8");
+        assert_eq!(map.get("OM").unwrap(), "304.3");
+        assert_eq!(map.get("W").unwrap(), "178.9");
+        assert_eq!(map.get("IN").unwrap(), "10.83");
+        assert_eq!(map.get("H").unwrap(), "11.16");
+        assert_eq!(map.get("G").unwrap(), "0.46");
+        assert!(map.get("QR").is_none());
+        assert!(map.get("TP").is_none());
+        assert!(map.get("N").is_none());
+    }
+
+    #[test]
+    fn test_user_defined_mean_motion_params() {
+        let elements = UserDefinedElements {
+            object_name: "TestObj".to_string(),
+            epoch: 2460000.5,
+            eccentricity: 0.1,
+            element_set: ElementSet::MeanMotion {
+                mean_motion: 0.524,
+                mean_anomaly: 45.0,
+            },
+            inclination: 5.0,
+            long_asc_node: 100.0,
+            arg_perihelion: 200.0,
+            ecliptic_frame: EclipticFrame::J2000,
+            asteroid_magnitude: None,
+            comet_magnitude: None,
+        };
+        let params = elements.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("OBJECT").unwrap(), "'TestObj'");
+        assert_eq!(map.get("N").unwrap(), "0.524");
+        assert_eq!(map.get("MA").unwrap(), "45");
+        assert!(map.get("A").is_none());
+        assert!(map.get("QR").is_none());
+        assert!(map.get("TP").is_none());
+    }
+
+    #[test]
+    fn test_user_defined_comet_magnitude() {
+        let elements =
+            UserDefinedElements::from_periapsis(2451544.5, 0.995, 0.23, 2451000.5, 0.0, 0.0, 0.0)
+                .with_comet_magnitude(5.0, 12.0, 10.0, 5.0);
+
+        let params = elements.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("M1").unwrap(), "5");
+        assert_eq!(map.get("M2").unwrap(), "12");
+        assert_eq!(map.get("K1").unwrap(), "10");
+        assert_eq!(map.get("K2").unwrap(), "5");
+        assert!(map.get("H").is_none());
+        assert!(map.get("G").is_none());
+    }
+
+    #[test]
+    fn test_user_defined_ecliptic_frame() {
+        let elements =
+            UserDefinedElements::from_semi_major(2451544.5, 0.2, 1.5, 90.0, 0.0, 0.0, 0.0)
+                .with_ecliptic_frame(EclipticFrame::B1950);
+
+        let params = elements.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("ECLIP").unwrap(), "'B1950'");
+    }
+
+    #[test]
+    fn test_user_defined_in_ephemeris_request() {
+        let elements = UserDefinedElements::from_semi_major(
+            2451544.5, 0.2229, 1.4583, 178.8, 304.3, 178.9, 10.83,
+        )
+        .with_name("Eros");
+
+        let req = EphemerisRequest::vectors(
+            Command::UserDefined(elements),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        // COMMAND should be the semicolon sentinel for user-defined
+        assert_eq!(map.get("COMMAND").unwrap(), "';'");
+        // Element parameters should be present
+        assert_eq!(map.get("OBJECT").unwrap(), "'Eros'");
+        assert_eq!(map.get("EPOCH").unwrap(), "2451544.5");
+        assert_eq!(map.get("EC").unwrap(), "0.2229");
+        assert_eq!(map.get("A").unwrap(), "1.4583");
+        assert_eq!(map.get("MA").unwrap(), "178.8");
+        // Standard ephemeris params should also be present
+        assert_eq!(map.get("EPHEM_TYPE").unwrap(), "VECTORS");
+        assert_eq!(map.get("CENTER").unwrap(), "'500@0'");
     }
 
     #[test]
