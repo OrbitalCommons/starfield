@@ -32,6 +32,11 @@ pub enum Command {
     Designation(String),
     /// Object by name (case-insensitive search, semicolon appended)
     Name(String),
+    /// User-supplied TLE (Two-Line Element) data for SGP4 propagation.
+    ///
+    /// The string contains the full TLE: optional name line, line 1, and line 2,
+    /// separated by newlines. HORIZONS accepts up to 600 TLE pairs.
+    Tle(String),
 }
 
 impl Command {
@@ -43,7 +48,41 @@ impl Command {
             Command::Comet(des) => format!("{};", des),
             Command::Designation(des) => format!("DES={};", des),
             Command::Name(name) => format!("{};", name),
+            Command::Tle(_) => "TLE".to_string(),
         }
+    }
+
+    /// Create a TLE command from individual lines.
+    ///
+    /// # Arguments
+    /// * `name` - Optional satellite name (line 0 of a 3-line element set)
+    /// * `line1` - TLE line 1 (must start with '1')
+    /// * `line2` - TLE line 2 (must start with '2')
+    ///
+    /// # Errors
+    /// Returns `StarfieldError::DataError` if line1 does not start with '1'
+    /// or line2 does not start with '2'.
+    pub fn from_tle(name: Option<&str>, line1: &str, line2: &str) -> Result<Self> {
+        let l1 = line1.trim();
+        let l2 = line2.trim();
+
+        if !l1.starts_with('1') {
+            return Err(StarfieldError::DataError(
+                "TLE line 1 must start with '1'".into(),
+            ));
+        }
+        if !l2.starts_with('2') {
+            return Err(StarfieldError::DataError(
+                "TLE line 2 must start with '2'".into(),
+            ));
+        }
+
+        let tle_string = match name {
+            Some(n) => format!("{}\n{}\n{}", n.trim(), l1, l2),
+            None => format!("{}\n{}", l1, l2),
+        };
+
+        Ok(Command::Tle(tle_string))
     }
 }
 
@@ -299,6 +338,12 @@ impl EphemerisRequest {
             "COMMAND".into(),
             format!("'{}'", self.command.to_query_value()),
         ));
+
+        // For TLE commands, include the TLE data as a separate parameter
+        if let Command::Tle(ref tle_data) = self.command {
+            params.push(("TLE".into(), format!("'{}'", tle_data)));
+        }
+
         params.push(("MAKE_EPHEM".into(), "YES".into()));
         params.push(("EPHEM_TYPE".into(), self.ephem_type.as_str().into()));
         params.push((
@@ -702,6 +747,133 @@ mod tests {
             result: None,
         };
         assert_eq!(resp_none.count(), 0);
+    }
+
+    // ISS TLE for HORIZONS TLE input testing
+    const ISS_TLE_LINE1: &str =
+        "1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9993";
+    const ISS_TLE_LINE2: &str =
+        "2 25544  51.6420  30.2134 0002345 210.5678 149.4246 15.49456789123456";
+
+    #[test]
+    fn test_command_tle_query_value() {
+        let cmd = Command::Tle("test data".to_string());
+        assert_eq!(cmd.to_query_value(), "TLE");
+    }
+
+    #[test]
+    fn test_command_from_tle_with_name() {
+        let cmd = Command::from_tle(Some("ISS (ZARYA)"), ISS_TLE_LINE1, ISS_TLE_LINE2)
+            .expect("from_tle should succeed");
+        assert_eq!(cmd.to_query_value(), "TLE");
+        if let Command::Tle(data) = &cmd {
+            assert!(data.starts_with("ISS (ZARYA)\n1 25544"));
+            assert!(data.contains("\n2 25544"));
+            // Three lines: name, line1, line2
+            assert_eq!(data.lines().count(), 3);
+        } else {
+            panic!("Expected Command::Tle variant");
+        }
+    }
+
+    #[test]
+    fn test_command_from_tle_without_name() {
+        let cmd =
+            Command::from_tle(None, ISS_TLE_LINE1, ISS_TLE_LINE2).expect("from_tle should succeed");
+        if let Command::Tle(data) = &cmd {
+            assert!(data.starts_with("1 25544"));
+            // Two lines: line1, line2
+            assert_eq!(data.lines().count(), 2);
+        } else {
+            panic!("Expected Command::Tle variant");
+        }
+    }
+
+    #[test]
+    fn test_command_from_tle_validates_line1() {
+        let result = Command::from_tle(None, "2 bad line", ISS_TLE_LINE2);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("line 1 must start with '1'"));
+    }
+
+    #[test]
+    fn test_command_from_tle_validates_line2() {
+        let result = Command::from_tle(None, ISS_TLE_LINE1, "1 bad line");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("line 2 must start with '2'"));
+    }
+
+    #[test]
+    fn test_tle_request_params() {
+        let cmd = Command::from_tle(Some("ISS (ZARYA)"), ISS_TLE_LINE1, ISS_TLE_LINE2)
+            .expect("from_tle should succeed");
+        let req = EphemerisRequest::vectors(
+            cmd,
+            Center::Geocentric,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 h".into(),
+            },
+        );
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        // COMMAND should be 'TLE'
+        assert_eq!(map.get("COMMAND").unwrap(), "'TLE'");
+
+        // TLE parameter should contain the full TLE data
+        let tle_param = map.get("TLE").expect("TLE parameter missing");
+        assert!(tle_param.contains("ISS (ZARYA)"));
+        assert!(tle_param.contains("1 25544"));
+        assert!(tle_param.contains("2 25544"));
+    }
+
+    #[test]
+    fn test_tle_request_no_tle_param_for_non_tle() {
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        // Non-TLE commands should not have a TLE parameter
+        assert!(map.get("TLE").is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_horizons_tle_iss_query() {
+        let cmd = Command::from_tle(Some("ISS (ZARYA)"), ISS_TLE_LINE1, ISS_TLE_LINE2)
+            .expect("from_tle should succeed");
+        let req = EphemerisRequest::vectors(
+            cmd,
+            Center::Geocentric,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 h".into(),
+            },
+        );
+        let client = HorizonsClient::new().expect("Failed to create client");
+        let response = client.query(&req).expect("HORIZONS TLE query failed");
+        let result = response.result.expect("No result in response");
+        assert!(
+            result.contains("$$SOE"),
+            "Response should contain ephemeris data"
+        );
+        assert!(
+            result.contains("$$EOE"),
+            "Response should contain ephemeris end marker"
+        );
     }
 
     #[test]
