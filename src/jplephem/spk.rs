@@ -1,7 +1,8 @@
 //! Spacecraft Planet Kernel (SPK) format reader
 //!
 //! Reads NASA SPICE SPK files containing position and velocity data
-//! for solar system bodies, stored as Chebyshev polynomial coefficients.
+//! for solar system bodies, stored as Chebyshev polynomial coefficients
+//! or Modified Difference Arrays.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,6 +15,7 @@ use crate::jplephem::chebyshev::{normalize_time, rescale_derivative, ChebyshevPo
 use crate::jplephem::daf::DAF;
 use crate::jplephem::errors::{JplephemError, Result};
 use crate::jplephem::names::get_target_name;
+use crate::jplephem::spk_type21::Type21Data;
 
 /// Type 2 record coefficients: (midpoint, radius, x_coeffs, y_coeffs, z_coeffs)
 type Type2Coeffs = (f64, f64, Vec<f64>, Vec<f64>, Vec<f64>);
@@ -65,7 +67,7 @@ pub struct Segment {
     pub center: i32,
     /// Reference frame ID
     pub frame: i32,
-    /// SPK data type (2=position only, 3=position+velocity)
+    /// SPK data type (2=Chebyshev position, 3=Chebyshev pos+vel, 21=MDA)
     pub data_type: i32,
     /// Start index in file (1-indexed double-words)
     pub start_i: usize,
@@ -81,14 +83,19 @@ pub struct Segment {
 
 /// Cached coefficient data for a segment
 #[derive(Clone)]
-struct SegmentData {
-    init: f64,
-    intlen: f64,
-    coefficients: Vec<f64>,
-    /// (n_records, n_components, n_coeffs_per_component)
-    shape: (usize, usize, usize),
-    record_size: usize,
-    data_type: i32,
+enum SegmentData {
+    /// Type 2/3 Chebyshev polynomial data
+    Chebyshev {
+        init: f64,
+        intlen: f64,
+        coefficients: Vec<f64>,
+        /// (n_records, n_components, n_coeffs_per_component)
+        shape: (usize, usize, usize),
+        record_size: usize,
+        data_type: i32,
+    },
+    /// Type 21 Modified Difference Array data
+    Type21(Type21Data),
 }
 
 impl SPK {
@@ -143,7 +150,7 @@ impl SPK {
             if start_i == 0 || end_i < start_i {
                 continue;
             }
-            if data_type != 2 && data_type != 3 {
+            if data_type != 2 && data_type != 3 && data_type != 21 {
                 continue;
             }
 
@@ -225,66 +232,85 @@ impl Segment {
         }
 
         let data = self.load_data()?;
-        let record_index = Self::find_record_index(et, data.init, data.intlen, data.shape.0)?;
 
-        match data.data_type {
-            2 => {
-                let (record_mid, record_radius, coeffs_x, coeffs_y, coeffs_z) =
-                    Self::get_record_coefficients_type2(
-                        &data.coefficients,
-                        record_index,
-                        data.record_size,
-                        data.shape.2,
-                    )?;
+        match data {
+            SegmentData::Chebyshev {
+                init,
+                intlen,
+                coefficients,
+                shape,
+                record_size,
+                data_type,
+            } => {
+                let record_index = Self::find_record_index(et, *init, *intlen, shape.0)?;
 
-                let t = normalize_time(et, record_mid, record_radius)?;
+                match data_type {
+                    2 => {
+                        let (record_mid, record_radius, coeffs_x, coeffs_y, coeffs_z) =
+                            Self::get_record_coefficients_type2(
+                                coefficients,
+                                record_index,
+                                *record_size,
+                                shape.2,
+                            )?;
 
-                let poly_x = ChebyshevPolynomial::new(coeffs_x);
-                let poly_y = ChebyshevPolynomial::new(coeffs_y);
-                let poly_z = ChebyshevPolynomial::new(coeffs_z);
+                        let t = normalize_time(et, record_mid, record_radius)?;
 
-                let position =
-                    Vector3::new(poly_x.evaluate(t), poly_y.evaluate(t), poly_z.evaluate(t));
+                        let poly_x = ChebyshevPolynomial::new(coeffs_x);
+                        let poly_y = ChebyshevPolynomial::new(coeffs_y);
+                        let poly_z = ChebyshevPolynomial::new(coeffs_z);
 
-                let velocity = Vector3::new(
-                    rescale_derivative(poly_x.derivative(t), record_radius)?,
-                    rescale_derivative(poly_y.derivative(t), record_radius)?,
-                    rescale_derivative(poly_z.derivative(t), record_radius)?,
-                );
+                        let position = Vector3::new(
+                            poly_x.evaluate(t),
+                            poly_y.evaluate(t),
+                            poly_z.evaluate(t),
+                        );
 
-                Ok((position, velocity))
+                        let velocity = Vector3::new(
+                            rescale_derivative(poly_x.derivative(t), record_radius)?,
+                            rescale_derivative(poly_y.derivative(t), record_radius)?,
+                            rescale_derivative(poly_z.derivative(t), record_radius)?,
+                        );
+
+                        Ok((position, velocity))
+                    }
+                    3 => {
+                        let (record_mid, record_radius, pos_coeffs, vel_coeffs) =
+                            Self::get_record_coefficients_type3(
+                                coefficients,
+                                record_index,
+                                *record_size,
+                                shape.2,
+                            )?;
+
+                        let t = normalize_time(et, record_mid, record_radius)?;
+
+                        let poly_x = ChebyshevPolynomial::new(pos_coeffs.0);
+                        let poly_y = ChebyshevPolynomial::new(pos_coeffs.1);
+                        let poly_z = ChebyshevPolynomial::new(pos_coeffs.2);
+
+                        let poly_vx = ChebyshevPolynomial::new(vel_coeffs.0);
+                        let poly_vy = ChebyshevPolynomial::new(vel_coeffs.1);
+                        let poly_vz = ChebyshevPolynomial::new(vel_coeffs.2);
+
+                        let position = Vector3::new(
+                            poly_x.evaluate(t),
+                            poly_y.evaluate(t),
+                            poly_z.evaluate(t),
+                        );
+
+                        let velocity = Vector3::new(
+                            rescale_derivative(poly_vx.evaluate(t), record_radius)?,
+                            rescale_derivative(poly_vy.evaluate(t), record_radius)?,
+                            rescale_derivative(poly_vz.evaluate(t), record_radius)?,
+                        );
+
+                        Ok((position, velocity))
+                    }
+                    _ => Err(JplephemError::UnsupportedDataType(*data_type)),
+                }
             }
-            3 => {
-                let (record_mid, record_radius, pos_coeffs, vel_coeffs) =
-                    Self::get_record_coefficients_type3(
-                        &data.coefficients,
-                        record_index,
-                        data.record_size,
-                        data.shape.2,
-                    )?;
-
-                let t = normalize_time(et, record_mid, record_radius)?;
-
-                let poly_x = ChebyshevPolynomial::new(pos_coeffs.0);
-                let poly_y = ChebyshevPolynomial::new(pos_coeffs.1);
-                let poly_z = ChebyshevPolynomial::new(pos_coeffs.2);
-
-                let poly_vx = ChebyshevPolynomial::new(vel_coeffs.0);
-                let poly_vy = ChebyshevPolynomial::new(vel_coeffs.1);
-                let poly_vz = ChebyshevPolynomial::new(vel_coeffs.2);
-
-                let position =
-                    Vector3::new(poly_x.evaluate(t), poly_y.evaluate(t), poly_z.evaluate(t));
-
-                let velocity = Vector3::new(
-                    rescale_derivative(poly_vx.evaluate(t), record_radius)?,
-                    rescale_derivative(poly_vy.evaluate(t), record_radius)?,
-                    rescale_derivative(poly_vz.evaluate(t), record_radius)?,
-                );
-
-                Ok((position, velocity))
-            }
-            _ => Err(JplephemError::UnsupportedDataType(data.data_type)),
+            SegmentData::Type21(type21_data) => type21_data.compute(et),
         }
     }
 
@@ -382,11 +408,16 @@ impl Segment {
             return Ok(data);
         }
 
-        let array = self.daf.read_array(self.start_i, self.end_i)?;
-
         match self.data_type {
-            2 => self.load_data_type_2(&array),
-            3 => self.load_data_type_3(&array),
+            2 | 3 => {
+                let array = self.daf.read_array(self.start_i, self.end_i)?;
+                match self.data_type {
+                    2 => self.load_data_type_2(&array),
+                    3 => self.load_data_type_3(&array),
+                    _ => unreachable!(),
+                }
+            }
+            21 => self.load_data_type_21(),
             _ => Err(JplephemError::UnsupportedDataType(self.data_type)),
         }
     }
@@ -422,7 +453,7 @@ impl Segment {
 
         let coefficients = array[0..(n - 4)].to_vec();
 
-        self.data = Some(SegmentData {
+        self.data = Some(SegmentData::Chebyshev {
             init,
             intlen,
             coefficients,
@@ -464,7 +495,7 @@ impl Segment {
 
         let coefficients = array[0..(n - 4)].to_vec();
 
-        self.data = Some(SegmentData {
+        self.data = Some(SegmentData::Chebyshev {
             init,
             intlen,
             coefficients,
@@ -472,6 +503,12 @@ impl Segment {
             record_size: rsize,
             data_type: self.data_type,
         });
+        Ok(self.data.as_ref().unwrap())
+    }
+
+    fn load_data_type_21(&mut self) -> Result<&SegmentData> {
+        let type21_data = Type21Data::load(&self.daf, self.start_i, self.end_i)?;
+        self.data = Some(SegmentData::Type21(type21_data));
         Ok(self.data.as_ref().unwrap())
     }
 

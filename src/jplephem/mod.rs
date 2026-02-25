@@ -10,6 +10,7 @@
 //! - [`spk`] - Spacecraft Planet Kernel format reader
 //! - [`kernel`] - High-level SpiceKernel API with named body access
 //! - [`chebyshev`] - Chebyshev polynomial interpolation
+//! - [`spk_type21`] - SPK Type 21 Modified Difference Array interpolation
 //! - [`names`] - NAIF body name/ID mappings
 //! - [`calendar`] - Julian date and calendar conversions
 
@@ -21,6 +22,7 @@ pub mod kernel;
 pub mod names;
 pub mod pck;
 pub mod spk;
+pub mod spk_type21;
 
 #[cfg(test)]
 mod tests;
