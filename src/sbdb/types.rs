@@ -532,6 +532,127 @@ pub struct ScoutObjectResponse {
     pub detail: ScoutObjectDetail,
 }
 
+/// Parameters for SB Radar API queries
+#[derive(Debug, Clone, Default)]
+pub struct RadarParams {
+    /// Select by SPK-ID
+    pub spk: Option<i64>,
+    /// Select by designation
+    pub des: Option<String>,
+    /// Object type: a, an, au, c, cn, cu, n, u
+    pub kind: Option<String>,
+    /// Reference point: P (peak/center) or C (center of mass)
+    pub bp: Option<String>,
+    /// Measurement type: R (range/delay) or P (Doppler)
+    pub measurement_type: Option<String>,
+    /// Include observer field
+    pub observer: bool,
+    /// Include notes field
+    pub notes: bool,
+    /// Include reference field
+    pub ref_field: bool,
+    /// Include full object name
+    pub fullname: bool,
+    /// Include modification date
+    pub modified: bool,
+    /// Include station geodetic coordinates
+    pub coords: bool,
+    /// Use cylindrical station coordinates instead of geodetic
+    pub c_coords: bool,
+}
+
+impl RadarParams {
+    /// Convert parameters to query string pairs
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(v) = self.spk {
+            params.push(("spk".into(), v.to_string()));
+        }
+        if let Some(ref v) = self.des {
+            params.push(("des".into(), v.clone()));
+        }
+        if let Some(ref v) = self.kind {
+            params.push(("kind".into(), v.clone()));
+        }
+        if let Some(ref v) = self.bp {
+            params.push(("bp".into(), v.clone()));
+        }
+        if let Some(ref v) = self.measurement_type {
+            params.push(("type".into(), v.clone()));
+        }
+        if self.observer {
+            params.push(("observer".into(), "true".into()));
+        }
+        if self.notes {
+            params.push(("notes".into(), "true".into()));
+        }
+        if self.ref_field {
+            params.push(("ref".into(), "true".into()));
+        }
+        if self.fullname {
+            params.push(("fullname".into(), "true".into()));
+        }
+        if self.modified {
+            params.push(("modified".into(), "true".into()));
+        }
+        if self.coords {
+            params.push(("coords".into(), "true".into()));
+        }
+        if self.c_coords {
+            params.push(("c-coords".into(), "true".into()));
+        }
+        params
+    }
+}
+
+/// A radar astrometry measurement record for a small body
+#[derive(Debug, Clone)]
+pub struct RadarRecord {
+    /// Object designation
+    pub designation: String,
+    /// Observation epoch
+    pub epoch: String,
+    /// Measured value (delay in microseconds or Doppler shift in Hz)
+    pub value: Option<f64>,
+    /// Measurement uncertainty (1-sigma)
+    pub sigma: Option<f64>,
+    /// Units of measurement: "us" (microseconds) or "Hz"
+    pub units: Option<String>,
+    /// Transmission frequency (MHz)
+    pub freq: Option<f64>,
+    /// Receiving station DSN code
+    pub rcvr: Option<String>,
+    /// Transmitting station DSN code
+    pub xmit: Option<String>,
+    /// Reference point: P (peak/center) or C (center of mass)
+    pub bp: Option<String>,
+    /// Observer information
+    pub observer: Option<String>,
+    /// Notes
+    pub notes: Option<String>,
+    /// Literature reference
+    pub reference: Option<String>,
+    /// Full object name
+    pub fullname: Option<String>,
+    /// Last modification date
+    pub modified: Option<String>,
+    /// Station longitude (degrees)
+    pub longitude: Option<f64>,
+    /// Station latitude (degrees)
+    pub latitude: Option<f64>,
+    /// Station altitude or cylindrical d_xy
+    pub altitude: Option<f64>,
+}
+
+/// Response from the SB Radar API
+#[derive(Debug, Clone)]
+pub struct RadarResponse {
+    /// Total number of records
+    pub count: u32,
+    /// Radar measurement records
+    pub records: Vec<RadarRecord>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

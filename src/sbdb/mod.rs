@@ -1,7 +1,7 @@
 //! JPL Small-Body Database (SBDB) API client.
 //!
 //! This module provides access to NASA JPL's Small-Body Database, covering
-//! approximately 1.5 million asteroids and comets. It supports five API endpoints:
+//! approximately 1.5 million asteroids and comets. It supports six API endpoints:
 //!
 //! - **SBDB lookup** — detailed data for a single object
 //! - **SBDB Query** — bulk filtered queries across all objects
@@ -10,6 +10,7 @@
 //! - **Sentry** — Earth impact risk monitoring
 //! - **Scout** — NEOCP unconfirmed object analysis
 //! - **Mission Design** — trajectory parameters for small-body missions
+//! - **SB Radar** — radar astrometry measurements
 //!
 //! No API key or authentication is required.
 //!
@@ -48,6 +49,7 @@ pub use types::{
     CloseApproachRecord, FireballRecord, MissionAccessibleEntry, MissionAccessibleParams,
     MissionAccessibleResponse, MissionDesignCriterion, MissionFlybyEntry, MissionFlybyParams,
     MissionFlybyResponse, MissionQueryObject, MissionQueryResponse, OrbitClass, PhysicalParams,
-    ScoutObjectDetail, ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry,
-    ScoutSummaryResponse, SentryEntry, Signature, SmallBodyObject, SmallBodyOrbit,
+    RadarParams, RadarRecord, RadarResponse, ScoutObjectDetail, ScoutObjectResponse,
+    ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry, Signature,
+    SmallBodyObject, SmallBodyOrbit,
 };

@@ -2,7 +2,7 @@
 //!
 //! Provides access to asteroid and comet data from NASA JPL's Small-Body
 //! Database, including orbital elements, physical parameters, close approaches,
-//! fireball events, and impact risk monitoring (Sentry).
+//! fireball events, impact risk monitoring (Sentry), and radar astrometry.
 //!
 //! All endpoints are HTTP GET, return JSON, and require no authentication.
 
@@ -18,6 +18,7 @@ const SENTRY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sentry.api";
 const SBDB_QUERY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbdb_query.api";
 const SCOUT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/scout.api";
 const MDESIGN_API_URL: &str = "https://ssd-api.jpl.nasa.gov/mdesign.api";
+const RADAR_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_radar.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -170,6 +171,13 @@ impl SbdbClient {
         let params = [("tdes", tdes.to_string()), ("orbits", "true".to_string())];
         let json = self.get_json(SCOUT_API_URL, &params)?;
         parse_scout_object_response(&json)
+    }
+
+    /// Query radar astrometry measurement data for small bodies.
+    pub fn radar(&self, params: &RadarParams) -> Result<RadarResponse> {
+        let query = params.to_query_params();
+        let json = self.get_json(RADAR_API_URL, &query)?;
+        parse_radar_response(&json)
     }
 
     /// Perform a GET request and parse the JSON response
@@ -658,6 +666,55 @@ fn parse_sentry_response(json: &Value) -> Result<SentryResponse> {
     }
 
     Ok(SentryResponse { count, entries })
+}
+
+// ── SB Radar ────────────────────────────────────────────────────────────────
+
+fn parse_radar_response(json: &Value) -> Result<RadarResponse> {
+    let count = parse_count(json);
+
+    let fields = json
+        .get("fields")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = json.get("data").and_then(|d| d.as_array());
+    let index = build_field_index(&fields);
+    let mut records = Vec::new();
+
+    if let Some(rows) = data {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                records.push(RadarRecord {
+                    designation: get_str(&index, arr, "des").unwrap_or_default(),
+                    epoch: get_str(&index, arr, "epoch").unwrap_or_default(),
+                    value: get_f64(&index, arr, "value"),
+                    sigma: get_f64(&index, arr, "sigma"),
+                    units: get_str(&index, arr, "units"),
+                    freq: get_f64(&index, arr, "freq"),
+                    rcvr: get_str(&index, arr, "rcvr"),
+                    xmit: get_str(&index, arr, "xmit"),
+                    bp: get_str(&index, arr, "bp"),
+                    observer: get_str(&index, arr, "observer"),
+                    notes: get_str(&index, arr, "notes"),
+                    reference: get_str(&index, arr, "ref"),
+                    fullname: get_str(&index, arr, "fullname"),
+                    modified: get_str(&index, arr, "modified"),
+                    longitude: get_f64(&index, arr, "longitude"),
+                    latitude: get_f64(&index, arr, "latitude"),
+                    altitude: get_f64(&index, arr, "altitude")
+                        .or_else(|| get_f64(&index, arr, "d_xy")),
+                });
+            }
+        }
+    }
+
+    Ok(RadarResponse { count, records })
 }
 
 // ── SBDB Query ──────────────────────────────────────────────────────────────
@@ -1683,5 +1740,132 @@ mod tests {
             .send()
             .expect("Mission Design API unreachable");
         assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    fn test_radar_params_default() {
+        let params = RadarParams::default();
+        assert!(params.to_query_params().is_empty());
+    }
+
+    #[test]
+    fn test_radar_params_with_filters() {
+        let params = RadarParams {
+            des: Some("433".into()),
+            measurement_type: Some("R".into()),
+            fullname: true,
+            observer: true,
+            coords: true,
+            ..Default::default()
+        };
+        let query = params.to_query_params();
+        let map: HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("des").unwrap(), "433");
+        assert_eq!(map.get("type").unwrap(), "R");
+        assert_eq!(map.get("fullname").unwrap(), "true");
+        assert_eq!(map.get("observer").unwrap(), "true");
+        assert_eq!(map.get("coords").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_parse_radar_response_standard() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "2",
+            "fields": ["des", "epoch", "value", "sigma", "units", "freq", "rcvr", "xmit", "bp"],
+            "data": [
+                ["433", "2005-Jan-26 07:29", "22.34560", "0.50000", "us", "8560", "-14", "-14", "C"],
+                ["433", "2005-Jan-26 07:29", "-19.52300", "0.10000", "Hz", "8560", "-14", "-14", "C"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_radar_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.records.len(), 2);
+        assert_eq!(resp.records[0].designation, "433");
+        assert_eq!(resp.records[0].epoch, "2005-Jan-26 07:29");
+        assert!((resp.records[0].value.unwrap() - 22.34560).abs() < 1e-5);
+        assert!((resp.records[0].sigma.unwrap() - 0.5).abs() < 1e-5);
+        assert_eq!(resp.records[0].units.as_deref(), Some("us"));
+        assert!((resp.records[0].freq.unwrap() - 8560.0).abs() < 1e-1);
+        assert_eq!(resp.records[0].rcvr.as_deref(), Some("-14"));
+        assert_eq!(resp.records[0].xmit.as_deref(), Some("-14"));
+        assert_eq!(resp.records[0].bp.as_deref(), Some("C"));
+
+        assert_eq!(resp.records[1].units.as_deref(), Some("Hz"));
+        assert!((resp.records[1].value.unwrap() - (-19.523)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_parse_radar_response_with_optional_fields() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "1",
+            "fields": ["des", "epoch", "value", "sigma", "units", "freq", "rcvr", "xmit", "bp", "observer", "notes", "ref", "fullname", "modified", "longitude", "latitude", "altitude"],
+            "data": [
+                ["1566", "1968-Jun-14 00:00", "0.14270", "0.00060", "us", "2380", "-1", "-1", "C", "R. Goldstein", "first asteroid detection", "Goldstein (1968)", "1566 Icarus", "2023-01-15", "243.205", "35.426", "1000.0"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_radar_response(&json).unwrap();
+        assert_eq!(resp.count, 1);
+        assert_eq!(resp.records.len(), 1);
+
+        let rec = &resp.records[0];
+        assert_eq!(rec.designation, "1566");
+        assert_eq!(rec.observer.as_deref(), Some("R. Goldstein"));
+        assert_eq!(rec.notes.as_deref(), Some("first asteroid detection"));
+        assert_eq!(rec.reference.as_deref(), Some("Goldstein (1968)"));
+        assert_eq!(rec.fullname.as_deref(), Some("1566 Icarus"));
+        assert_eq!(rec.modified.as_deref(), Some("2023-01-15"));
+        assert!((rec.longitude.unwrap() - 243.205).abs() < 1e-3);
+        assert!((rec.latitude.unwrap() - 35.426).abs() < 1e-3);
+        assert!((rec.altitude.unwrap() - 1000.0).abs() < 1e-1);
+    }
+
+    #[test]
+    fn test_parse_radar_response_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "0",
+            "fields": ["des", "epoch", "value", "sigma", "units", "freq", "rcvr", "xmit", "bp"],
+            "data": []
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_radar_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.records.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_radar_api_reachable() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .head(RADAR_API_URL)
+            .send()
+            .expect("Radar API unreachable");
+        assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_radar_api_live_query() {
+        let client = SbdbClient::new().unwrap();
+        let params = RadarParams {
+            des: Some("433".into()),
+            ..Default::default()
+        };
+        let resp = client.radar(&params).unwrap();
+        assert!(resp.count > 0, "Expected radar data for asteroid 433 Eros");
+        assert_eq!(resp.records.len(), resp.count as usize);
+        assert_eq!(resp.records[0].designation, "433");
     }
 }
