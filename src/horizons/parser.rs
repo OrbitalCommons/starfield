@@ -299,6 +299,216 @@ pub fn extract_column_names(result: &str) -> Vec<String> {
     Vec::new()
 }
 
+/// A single row of close-approach data from HORIZONS
+#[derive(Debug, Clone)]
+pub struct ApproachRow {
+    /// Julian Date TDB of closest approach (present only in EXTENDED tables)
+    pub jd_tdb: Option<f64>,
+    /// Calendar date string of closest approach (e.g., "A.D. 2029 Apr 13.90709")
+    pub date: String,
+    /// Name of the close-approach body (e.g., "Earth", "Moon", "Jupiter")
+    pub body: String,
+    /// Nominal close-approach distance (AU)
+    pub ca_dist_au: f64,
+    /// Minimum possible close-approach distance, 3-sigma (AU)
+    pub min_dist_au: f64,
+    /// Maximum possible close-approach distance, 3-sigma (AU)
+    pub max_dist_au: f64,
+    /// Relative velocity at closest approach (km/s)
+    pub v_rel: f64,
+    /// 3-sigma uncertainty in time of closest approach (minutes)
+    pub tca3sg: f64,
+    /// B-plane semi-major axis, 1-sigma (km) -- EXTENDED only
+    pub smaa_1sg: Option<f64>,
+    /// B-plane semi-minor axis, 1-sigma (km) -- EXTENDED only
+    pub smia_1sg: Option<f64>,
+    /// B-plane B dot T component (km) -- EXTENDED only
+    pub b_t: Option<f64>,
+    /// B-plane B dot R component (km) -- EXTENDED only
+    pub b_r: Option<f64>,
+    /// B-plane orientation angle (degrees) -- EXTENDED only
+    pub theta: Option<f64>,
+    /// Number of sigma to LOV intersection
+    pub n_sigs: f64,
+    /// Linearized impact probability
+    pub impact_prob: f64,
+}
+
+/// Extract the close-approach data block from HORIZONS result text.
+///
+/// APPROACH output does not use $$SOE/$$EOE markers. Instead, the data
+/// appears between a dashed separator line and the next asterisk-delimited
+/// section boundary.
+pub fn extract_approach_block(result: &str) -> Result<&str> {
+    // Find the dashed separator line that follows the column headers
+    let dash_pos = result.find("----------------------").ok_or_else(|| {
+        StarfieldError::DataError(
+            "HORIZONS APPROACH response missing column separator line".to_string(),
+        )
+    })?;
+
+    // Skip past the dash line to the start of data
+    let after_dashes = &result[dash_pos..];
+    let data_start = after_dashes.find('\n').ok_or_else(|| {
+        StarfieldError::DataError("HORIZONS APPROACH response has no data after header".to_string())
+    })? + dash_pos
+        + 1;
+
+    // Find the next asterisk-delimited boundary line after the data
+    let data_region = &result[data_start..];
+    let end_offset = data_region.find("**").unwrap_or(data_region.len());
+
+    let block = result[data_start..data_start + end_offset].trim();
+
+    if block.is_empty() {
+        return Err(StarfieldError::DataError(
+            "HORIZONS APPROACH response contains no data rows".to_string(),
+        ));
+    }
+
+    Ok(block)
+}
+
+/// Parse close-approach rows from a HORIZONS approach data block.
+///
+/// Handles both STANDARD and EXTENDED table formats. The format is
+/// detected automatically based on whether the first data token is
+/// a Julian Date number (EXTENDED) or a calendar date prefix (STANDARD).
+pub fn parse_approach_rows(block: &str) -> Result<Vec<ApproachRow>> {
+    let mut rows = Vec::new();
+
+    for line in block.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Determine if this is an EXTENDED row (starts with a JD number)
+        // or a STANDARD row (starts with "A.D." or "B.C.")
+        let is_extended = line
+            .split_whitespace()
+            .next()
+            .is_some_and(|tok| tok.parse::<f64>().is_ok());
+
+        if is_extended {
+            let row = parse_extended_approach_line(line)?;
+            rows.push(row);
+        } else if line.starts_with("A.D.") || line.starts_with("B.C.") {
+            let row = parse_standard_approach_line(line)?;
+            rows.push(row);
+        }
+    }
+
+    if rows.is_empty() {
+        return Err(StarfieldError::DataError(
+            "No close-approach rows parsed from HORIZONS output".to_string(),
+        ));
+    }
+
+    Ok(rows)
+}
+
+/// Parse a single STANDARD-format approach line.
+///
+/// Format: `A.D. 2029 Apr 13.90709  Earth  .000254  .000254  .000254   7.423   0.00 31947. .000000`
+fn parse_standard_approach_line(line: &str) -> Result<ApproachRow> {
+    // The calendar date is "A.D. YYYY Mon DD.ddddd" (4 tokens)
+    // or "B.C. YYYY Mon DD.ddddd" (4 tokens)
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 11 {
+        return Err(StarfieldError::DataError(format!(
+            "APPROACH standard row has too few fields ({}): '{}'",
+            tokens.len(),
+            line
+        )));
+    }
+
+    // tokens[0..4]: "A.D." "2029" "Apr" "13.90709"
+    let date = format!("{} {} {} {}", tokens[0], tokens[1], tokens[2], tokens[3]);
+    // tokens[4]: body name (may be multi-word, but HORIZONS uses single-word abbreviations)
+    let body = tokens[4].to_string();
+    let ca_dist_au = parse_f64(tokens[5], "CA Dist")?;
+    let min_dist_au = parse_f64(tokens[6], "MinDist")?;
+    let max_dist_au = parse_f64(tokens[7], "MaxDist")?;
+    let v_rel = parse_f64(tokens[8], "Vrel")?;
+    let tca3sg = parse_f64(tokens[9], "TCA3Sg")?;
+    let n_sigs = parse_f64(tokens[10], "Nsigs")?;
+    let impact_prob = if tokens.len() > 11 {
+        parse_f64(tokens[11], "P_i/p")?
+    } else {
+        0.0
+    };
+
+    Ok(ApproachRow {
+        jd_tdb: None,
+        date,
+        body,
+        ca_dist_au,
+        min_dist_au,
+        max_dist_au,
+        v_rel,
+        tca3sg,
+        smaa_1sg: None,
+        smia_1sg: None,
+        b_t: None,
+        b_r: None,
+        theta: None,
+        n_sigs,
+        impact_prob,
+    })
+}
+
+/// Parse a single EXTENDED-format approach line.
+///
+/// Format: `2462240.40709 A.D. 2029 Apr 13.90709  Earth  .000254  .000254  .000254   7.423   0.00 .5357298 .2205204 -20191.138 -9756.8003  11.25 31947. .000000`
+fn parse_extended_approach_line(line: &str) -> Result<ApproachRow> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 18 {
+        return Err(StarfieldError::DataError(format!(
+            "APPROACH extended row has too few fields ({}): '{}'",
+            tokens.len(),
+            line
+        )));
+    }
+
+    // tokens[0]: JDTDB
+    let jd_tdb = parse_f64(tokens[0], "JDTDB")?;
+    // tokens[1..5]: "A.D." "2029" "Apr" "13.90709"
+    let date = format!("{} {} {} {}", tokens[1], tokens[2], tokens[3], tokens[4]);
+    // tokens[5]: body name
+    let body = tokens[5].to_string();
+    let ca_dist_au = parse_f64(tokens[6], "CA Dist")?;
+    let min_dist_au = parse_f64(tokens[7], "MinDist")?;
+    let max_dist_au = parse_f64(tokens[8], "MaxDist")?;
+    let v_rel = parse_f64(tokens[9], "Vrel")?;
+    let tca3sg = parse_f64(tokens[10], "TCA3Sg")?;
+    let smaa_1sg = parse_f64(tokens[11], "SMaA-1Sg")?;
+    let smia_1sg = parse_f64(tokens[12], "SMiA-1Sg")?;
+    let b_t = parse_f64(tokens[13], "B.T")?;
+    let b_r = parse_f64(tokens[14], "B.R")?;
+    let theta = parse_f64(tokens[15], "Theta0")?;
+    let n_sigs = parse_f64(tokens[16], "Nsigs")?;
+    let impact_prob = parse_f64(tokens[17], "P_i/p")?;
+
+    Ok(ApproachRow {
+        jd_tdb: Some(jd_tdb),
+        date,
+        body,
+        ca_dist_au,
+        min_dist_au,
+        max_dist_au,
+        v_rel,
+        tca3sg,
+        smaa_1sg: Some(smaa_1sg),
+        smia_1sg: Some(smia_1sg),
+        b_t: Some(b_t),
+        b_r: Some(b_r),
+        theta: Some(theta),
+        n_sigs,
+        impact_prob,
+    })
+}
+
 /// Parse a float field, returning a descriptive error on failure
 fn parse_f64(s: &str, field_name: &str) -> Result<f64> {
     s.trim().parse::<f64>().map_err(|_| {
@@ -397,5 +607,110 @@ $$EOE
     fn test_parse_f64() {
         assert!((parse_f64("  1.5E+02  ", "test").unwrap() - 150.0).abs() < 1e-10);
         assert!(parse_f64("not_a_number", "test").is_err());
+    }
+
+    const SAMPLE_APPROACH_STANDARD: &str = r#"
+*******************************************************************************
+ Close-approach results:
+
+          Date (TDB)      Body   CA Dist  MinDist  MaxDist   Vrel  TCA3Sg  Nsigs  P_i/p
+  ----------------------  -----  -------  -------  -------  ------ ------ ------ -------
+  A.D. 2029 Apr 13.90709  Earth  .000254  .000254  .000254   7.423   0.00 31947. .000000
+  A.D. 2029 Apr 14.60577  Moon   .000642  .000641  .000642   6.396   0.01 62508. .000000
+****************************************************************************************
+ Column meaning:
+"#;
+
+    const SAMPLE_APPROACH_EXTENDED: &str = r#"
+****************************************************************************************************************************************************
+ Close-approach results:
+
+  Time (JDTDB)         Date (TDB)      Body   CA Dist  MinDist  MaxDist   Vrel  TCA3Sg SMaA-1Sg SMiA-1Sg     B.T       B.R     Theta0  Nsigs  P_i/p
+ ------------- ----------------------  -----  -------  -------  -------  ------ ------ -------- -------- ---------- ---------- ------ ------ -------
+ 2462240.40709 A.D. 2029 Apr 13.90709  Earth  .000254  .000254  .000254   7.423   0.00 .5357298 .2205204 -20191.138 -9756.8003  11.25 31947. .000000
+ 2462241.10577 A.D. 2029 Apr 14.60577  Moon   .000642  .000641  .000642   6.396   0.01 4.668467 1.203738  88355.872 -17488.390  46.28 62508. .000000
+****************************************************************************************************************************************************
+ Column meaning:
+"#;
+
+    #[test]
+    fn test_extract_approach_block_standard() {
+        let block = extract_approach_block(SAMPLE_APPROACH_STANDARD).unwrap();
+        assert!(block.contains("Earth"));
+        assert!(block.contains("Moon"));
+        assert!(!block.contains("------"));
+        assert!(!block.contains("Column meaning"));
+    }
+
+    #[test]
+    fn test_extract_approach_block_extended() {
+        let block = extract_approach_block(SAMPLE_APPROACH_EXTENDED).unwrap();
+        assert!(block.contains("2462240.40709"));
+        assert!(block.contains("Moon"));
+    }
+
+    #[test]
+    fn test_extract_approach_block_missing_separator() {
+        let result = "no dashes here at all";
+        assert!(extract_approach_block(result).is_err());
+    }
+
+    #[test]
+    fn test_parse_approach_standard() {
+        let block = extract_approach_block(SAMPLE_APPROACH_STANDARD).unwrap();
+        let rows = parse_approach_rows(block).unwrap();
+        assert_eq!(rows.len(), 2);
+
+        let earth = &rows[0];
+        assert_eq!(earth.body, "Earth");
+        assert!(earth.date.contains("2029"));
+        assert!(earth.date.contains("Apr"));
+        assert!((earth.ca_dist_au - 0.000254).abs() < 1e-6);
+        assert!((earth.min_dist_au - 0.000254).abs() < 1e-6);
+        assert!((earth.max_dist_au - 0.000254).abs() < 1e-6);
+        assert!((earth.v_rel - 7.423).abs() < 1e-3);
+        assert!((earth.tca3sg - 0.00).abs() < 1e-2);
+        assert!((earth.n_sigs - 31947.0).abs() < 1.0);
+        assert!((earth.impact_prob - 0.0).abs() < 1e-6);
+        assert!(earth.jd_tdb.is_none());
+        assert!(earth.smaa_1sg.is_none());
+
+        let moon = &rows[1];
+        assert_eq!(moon.body, "Moon");
+        assert!((moon.ca_dist_au - 0.000642).abs() < 1e-6);
+        assert!((moon.v_rel - 6.396).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_parse_approach_extended() {
+        let block = extract_approach_block(SAMPLE_APPROACH_EXTENDED).unwrap();
+        let rows = parse_approach_rows(block).unwrap();
+        assert_eq!(rows.len(), 2);
+
+        let earth = &rows[0];
+        assert_eq!(earth.body, "Earth");
+        assert!((earth.jd_tdb.unwrap() - 2462240.40709).abs() < 1e-5);
+        assert!(earth.date.contains("2029"));
+        assert!((earth.ca_dist_au - 0.000254).abs() < 1e-6);
+        assert!((earth.v_rel - 7.423).abs() < 1e-3);
+        assert!((earth.smaa_1sg.unwrap() - 0.5357298).abs() < 1e-7);
+        assert!((earth.smia_1sg.unwrap() - 0.2205204).abs() < 1e-7);
+        assert!((earth.b_t.unwrap() - (-20191.138)).abs() < 1e-3);
+        assert!((earth.b_r.unwrap() - (-9756.8003)).abs() < 1e-4);
+        assert!((earth.theta.unwrap() - 11.25).abs() < 1e-2);
+        assert!((earth.n_sigs - 31947.0).abs() < 1.0);
+        assert!((earth.impact_prob - 0.0).abs() < 1e-6);
+
+        let moon = &rows[1];
+        assert!((moon.jd_tdb.unwrap() - 2462241.10577).abs() < 1e-5);
+        assert_eq!(moon.body, "Moon");
+        assert!((moon.smaa_1sg.unwrap() - 4.668467).abs() < 1e-6);
+        assert!((moon.b_t.unwrap() - 88355.872).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_parse_approach_empty_block() {
+        assert!(parse_approach_rows("").is_err());
+        assert!(parse_approach_rows("  \n  \n").is_err());
     }
 }
