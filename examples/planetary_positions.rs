@@ -5,6 +5,7 @@
 //! Usage: cargo run --example planetary_positions
 
 use starfield::jplephem::SpiceKernel;
+use starfield::jplephem_ext::SpiceKernelExt;
 use starfield::planetlib::{Body, Ephemeris};
 use starfield::Timescale;
 
@@ -12,7 +13,7 @@ fn main() -> starfield::Result<()> {
     let ts = Timescale::default();
 
     // Load the DE421 ephemeris
-    let bsp_path = "src/jplephem/test_data/de421.bsp";
+    let bsp_path = "test_data/de421.bsp";
     println!("Loading ephemeris from {bsp_path}...");
 
     let mut kernel = SpiceKernel::open(bsp_path)?;

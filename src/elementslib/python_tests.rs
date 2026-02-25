@@ -2,6 +2,7 @@
 
 use crate::constants::{AU_KM, GM_SUN};
 use crate::elementslib::OsculatingElements;
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::pybridge::bridge::PyRustBridge;
 use crate::pybridge::helpers::PythonResult;
 use nalgebra::Vector3;
@@ -49,8 +50,7 @@ rust.collect_string(",".join(f"{v:.15f}" for v in results))
     let py: Vec<f64> = values_str.split(',').map(|s| s.parse().unwrap()).collect();
 
     // Get Earth's heliocentric state from DE421
-    let mut kernel =
-        crate::jplephem::kernel::SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap();
+    let mut kernel = crate::jplephem::kernel::SpiceKernel::open("test_data/de421.bsp").unwrap();
     let ts = crate::time::Timescale::default();
     let t = ts.tdb_jd(2451545.0);
 
@@ -126,8 +126,7 @@ rust.collect_string(",".join(f"{v:.15f}" for v in results))
     };
     let py: Vec<f64> = values_str.split(',').map(|s| s.parse().unwrap()).collect();
 
-    let mut kernel =
-        crate::jplephem::kernel::SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap();
+    let mut kernel = crate::jplephem::kernel::SpiceKernel::open("test_data/de421.bsp").unwrap();
     let ts = crate::time::Timescale::default();
     let t = ts.tdb_jd(2451545.0);
 

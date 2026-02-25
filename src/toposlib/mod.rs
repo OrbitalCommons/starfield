@@ -26,6 +26,7 @@ use std::f64::consts::PI;
 use crate::constants::{
     AU_M, DAY_S, EARTH_ANGVEL, EARTH_RADIUS, IERS_2010_INVERSE_EARTH_FLATTENING,
 };
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::positions::{Position, PositionKind};
 use crate::time::Time;
 
@@ -251,6 +252,7 @@ impl std::fmt::Display for GeographicPosition {
 mod tests {
     use super::*;
     use crate::jplephem::kernel::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use approx::assert_relative_eq;
 
     #[test]
@@ -383,7 +385,7 @@ mod tests {
     // --- Integration tests using DE421 ---
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
+        SpiceKernel::open("test_data/de421.bsp").expect("Failed to open DE421")
     }
 
     fn j2000_time() -> Time {

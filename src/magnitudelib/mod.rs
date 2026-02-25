@@ -233,10 +233,11 @@ fn neptune_magnitude(r: f64, delta: f64, ph_ang: f64, year: f64) -> f64 {
 mod tests {
     use super::*;
     use crate::jplephem::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::time::Timescale;
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap()
+        SpiceKernel::open("test_data/de421.bsp").unwrap()
     }
 
     #[test]

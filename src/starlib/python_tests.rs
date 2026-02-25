@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::pybridge::bridge::PyRustBridge;
     use crate::pybridge::test_utils::{de421_kernel, parse_f64_triple};
     use crate::starlib::Star;

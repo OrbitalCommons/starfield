@@ -1,9 +1,10 @@
 //! Planetary ephemeris calculations module
 
-use nalgebra::{Point3, Vector3};
 use thiserror::Error;
 
 use crate::jplephem::kernel::SpiceKernel;
+use crate::jplephem::PlanetState;
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::time::Time;
 
 /// Error type for planetary calculations
@@ -89,15 +90,6 @@ impl Body {
             Body::Pluto => "pluto barycenter",
         }
     }
-}
-
-/// A planet's state (position + velocity) at a point in time
-#[derive(Debug, Clone)]
-pub struct PlanetState {
-    /// Position in AU (relative to SSB)
-    pub position: Point3<f64>,
-    /// Velocity in AU/day
-    pub velocity: Vector3<f64>,
 }
 
 /// Planetary ephemeris backed by a SPICE kernel

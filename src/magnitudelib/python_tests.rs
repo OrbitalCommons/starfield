@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate::jplephem::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::magnitudelib::planetary_magnitude;
     use crate::pybridge::{PyRustBridge, PythonResult};
     use crate::time::Timescale;
@@ -16,7 +17,7 @@ mod tests {
     }
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap()
+        SpiceKernel::open("test_data/de421.bsp").unwrap()
     }
 
     /// Jupiter magnitude matches Skyfield at 2020-Jul-31
