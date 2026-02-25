@@ -868,6 +868,243 @@ pub struct SbIdentResponse {
     pub elem_second_pass: Vec<SbIdentOrbitalElements>,
 }
 
+/// Observer location for the SB Observability API
+#[derive(Debug, Clone)]
+pub enum ObservabilityObserver {
+    /// MPC observatory code (e.g., "F51" for Pan-STARRS 1)
+    MpcCode(String),
+    /// Geodetic coordinates
+    Geodetic {
+        /// Latitude in degrees, north-positive [-90, 90]
+        lat: f64,
+        /// Longitude in degrees, east-positive [-180, 180]
+        lon: f64,
+        /// Altitude above WGS-84 ellipsoid in km
+        alt: f64,
+    },
+}
+
+/// Parameters for the SB Observability API query
+#[derive(Debug, Clone)]
+pub struct ObservabilityParams {
+    /// Observer location (required)
+    pub observer: ObservabilityObserver,
+    /// Observation date: YYYY-MM-DD or YYYY-MM-DD_hh:mm:ss (required)
+    pub obs_time: String,
+    /// End observation time
+    pub obs_end: Option<String>,
+    /// Require sun below horizon (default: true)
+    pub optical: Option<bool>,
+    /// Minimum solar elongation (deg), required if optical=false
+    pub elong_min: Option<f64>,
+    /// Maximum solar elongation (deg)
+    pub elong_max: Option<f64>,
+    /// Minimum galactic latitude (deg)
+    pub glat_min: Option<f64>,
+    /// Maximum galactic latitude (deg)
+    pub glat_max: Option<f64>,
+    /// Minimum elevation above horizon (deg, default: 30)
+    pub elev_min: Option<f64>,
+    /// Minimum observable time (minutes, default: 0)
+    pub time_min: Option<u32>,
+    /// Minimum visual magnitude
+    pub vmag_min: Option<f64>,
+    /// Maximum visual magnitude
+    pub vmag_max: Option<f64>,
+    /// Require magnitude data
+    pub mag_required: Option<bool>,
+    /// Minimum heliocentric distance (AU)
+    pub helio_min: Option<f64>,
+    /// Maximum heliocentric distance (AU)
+    pub helio_max: Option<f64>,
+    /// Minimum topocentric distance (AU)
+    pub dist_min: Option<f64>,
+    /// Maximum topocentric distance (AU)
+    pub dist_max: Option<f64>,
+    /// Maximum number of output records
+    pub maxoutput: Option<u32>,
+    /// Sort field for output
+    pub output_sort: Option<String>,
+    /// Sort in descending order
+    pub output_sort_r: Option<bool>,
+    /// Small body kind filter (a=asteroid, c=comet)
+    pub sb_kind: Option<String>,
+    /// Small body group filter (e.g., "neo", "pha")
+    pub sb_group: Option<String>,
+}
+
+impl ObservabilityParams {
+    /// Convert parameters to query string key-value pairs
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        match &self.observer {
+            ObservabilityObserver::MpcCode(code) => {
+                params.push(("mpc-code".into(), code.clone()));
+            }
+            ObservabilityObserver::Geodetic { lat, lon, alt } => {
+                params.push(("lat".into(), lat.to_string()));
+                params.push(("lon".into(), lon.to_string()));
+                params.push(("alt".into(), alt.to_string()));
+            }
+        }
+
+        params.push(("obs-time".into(), self.obs_time.clone()));
+
+        if let Some(ref v) = self.obs_end {
+            params.push(("obs-end".into(), v.clone()));
+        }
+        if let Some(v) = self.optical {
+            params.push(("optical".into(), v.to_string()));
+        }
+        if let Some(v) = self.elong_min {
+            params.push(("elong-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.elong_max {
+            params.push(("elong-max".into(), v.to_string()));
+        }
+        if let Some(v) = self.glat_min {
+            params.push(("glat-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.glat_max {
+            params.push(("glat-max".into(), v.to_string()));
+        }
+        if let Some(v) = self.elev_min {
+            params.push(("elev-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.time_min {
+            params.push(("time-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.vmag_min {
+            params.push(("vmag-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.vmag_max {
+            params.push(("vmag-max".into(), v.to_string()));
+        }
+        if let Some(v) = self.mag_required {
+            params.push(("mag-required".into(), v.to_string()));
+        }
+        if let Some(v) = self.helio_min {
+            params.push(("helio-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.helio_max {
+            params.push(("helio-max".into(), v.to_string()));
+        }
+        if let Some(v) = self.dist_min {
+            params.push(("dist-min".into(), v.to_string()));
+        }
+        if let Some(v) = self.dist_max {
+            params.push(("dist-max".into(), v.to_string()));
+        }
+        if let Some(v) = self.maxoutput {
+            params.push(("maxoutput".into(), v.to_string()));
+        }
+        if let Some(ref v) = self.output_sort {
+            params.push(("output-sort".into(), v.clone()));
+        }
+        if let Some(v) = self.output_sort_r {
+            params.push(("output-sort-r".into(), v.to_string()));
+        }
+        if let Some(ref v) = self.sb_kind {
+            params.push(("sb-kind".into(), v.clone()));
+        }
+        if let Some(ref v) = self.sb_group {
+            params.push(("sb-group".into(), v.clone()));
+        }
+
+        params
+    }
+}
+
+/// Night information from the SB Observability API response
+#[derive(Debug, Clone)]
+pub struct ObservabilityNightInfo {
+    /// Sunset time (UT)
+    pub sun_set: Option<String>,
+    /// Sunrise time (UT)
+    pub sun_rise: Option<String>,
+    /// Sunset azimuth (deg)
+    pub sun_set_az: Option<String>,
+    /// Sunrise azimuth (deg)
+    pub sun_rise_az: Option<String>,
+    /// Begin astronomical twilight (UT)
+    pub begin_astronomical: Option<String>,
+    /// End astronomical twilight (UT)
+    pub end_astronomical: Option<String>,
+    /// Begin civil twilight (UT)
+    pub begin_civil: Option<String>,
+    /// End civil twilight (UT)
+    pub end_civil: Option<String>,
+    /// Begin nautical twilight (UT)
+    pub begin_nautical: Option<String>,
+    /// End nautical twilight (UT)
+    pub end_nautical: Option<String>,
+    /// Moon rise time (UT)
+    pub moon_rise: Option<String>,
+    /// Moon rise phase
+    pub moon_rise_phase: Option<String>,
+    /// Moon set time (UT)
+    pub moon_set: Option<String>,
+    /// Moon set phase
+    pub moon_set_phase: Option<String>,
+    /// Moon transit time (UT)
+    pub transit: Option<String>,
+    /// Moon transit phase
+    pub transit_phase: Option<String>,
+    /// Begin dark time (UT)
+    pub begin_dark: Option<String>,
+    /// Mid dark time (UT)
+    pub mid_dark: Option<String>,
+    /// End dark time (UT)
+    pub end_dark: Option<String>,
+    /// Total dark time (hours)
+    pub dark_time: Option<String>,
+}
+
+/// A single observable object from the SB Observability API
+#[derive(Debug, Clone)]
+pub struct ObservableObject {
+    /// Object designation
+    pub des: String,
+    /// Full name
+    pub fullname: Option<String>,
+    /// Rise time (UT)
+    pub rise: Option<String>,
+    /// Transit time (UT)
+    pub transit: Option<String>,
+    /// Set time (UT)
+    pub set: Option<String>,
+    /// Maximum observable time
+    pub max_time: Option<String>,
+    /// Right ascension
+    pub ra: Option<String>,
+    /// Declination
+    pub dec: Option<String>,
+    /// Visual magnitude
+    pub vmag: Option<f64>,
+    /// Heliocentric range (AU)
+    pub helio_range_au: Option<f64>,
+    /// Topocentric range (AU)
+    pub topo_range_au: Option<f64>,
+    /// Object-Observer-Sun angle (deg)
+    pub sun_angle: Option<f64>,
+    /// Object-Observer-Moon angle (deg)
+    pub moon_angle: Option<f64>,
+    /// Galactic latitude (deg)
+    pub galactic_lat: Option<f64>,
+}
+
+/// Response from the SB Observability API
+#[derive(Debug, Clone)]
+pub struct ObservabilityResponse {
+    /// Night information (sunset/sunrise, twilight, moon data)
+    pub night_info: ObservabilityNightInfo,
+    /// Total number of observable objects
+    pub count: u32,
+    /// Observable objects
+    pub objects: Vec<ObservableObject>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -973,5 +1210,86 @@ mod tests {
         assert_eq!(map.get("sb-kind").unwrap(), "a");
         assert_eq!(map.get("sb-group").unwrap(), "neo");
         assert_eq!(map.get("req-elem").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_observability_params_mpc_code() {
+        let params = ObservabilityParams {
+            observer: ObservabilityObserver::MpcCode("F51".into()),
+            obs_time: "2026-03-01".into(),
+            obs_end: None,
+            optical: None,
+            elong_min: None,
+            elong_max: None,
+            glat_min: None,
+            glat_max: None,
+            elev_min: None,
+            time_min: None,
+            vmag_min: None,
+            vmag_max: Some(18.0),
+            mag_required: None,
+            helio_min: None,
+            helio_max: None,
+            dist_min: None,
+            dist_max: None,
+            maxoutput: Some(10),
+            output_sort: Some("vmag".into()),
+            output_sort_r: None,
+            sb_kind: None,
+            sb_group: None,
+        };
+        let query = params.to_query_params();
+        let map: std::collections::HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("mpc-code").unwrap(), "F51");
+        assert_eq!(map.get("obs-time").unwrap(), "2026-03-01");
+        assert_eq!(map.get("vmag-max").unwrap(), "18");
+        assert_eq!(map.get("maxoutput").unwrap(), "10");
+        assert_eq!(map.get("output-sort").unwrap(), "vmag");
+        assert!(!map.contains_key("lat"));
+    }
+
+    #[test]
+    fn test_observability_params_geodetic() {
+        let params = ObservabilityParams {
+            observer: ObservabilityObserver::Geodetic {
+                lat: 34.05,
+                lon: -118.25,
+                alt: 0.1,
+            },
+            obs_time: "2026-06-15".into(),
+            obs_end: None,
+            optical: Some(false),
+            elong_min: Some(30.0),
+            elong_max: None,
+            glat_min: None,
+            glat_max: None,
+            elev_min: Some(20.0),
+            time_min: None,
+            vmag_min: None,
+            vmag_max: None,
+            mag_required: None,
+            helio_min: None,
+            helio_max: None,
+            dist_min: None,
+            dist_max: None,
+            maxoutput: None,
+            output_sort: None,
+            output_sort_r: None,
+            sb_kind: Some("a".into()),
+            sb_group: Some("neo".into()),
+        };
+        let query = params.to_query_params();
+        let map: std::collections::HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("lat").unwrap(), "34.05");
+        assert_eq!(map.get("lon").unwrap(), "-118.25");
+        assert_eq!(map.get("alt").unwrap(), "0.1");
+        assert_eq!(map.get("optical").unwrap(), "false");
+        assert_eq!(map.get("elong-min").unwrap(), "30");
+        assert_eq!(map.get("elev-min").unwrap(), "20");
+        assert_eq!(map.get("sb-kind").unwrap(), "a");
+        assert_eq!(map.get("sb-group").unwrap(), "neo");
+        assert!(!map.contains_key("mpc-code"));
     }
 }
