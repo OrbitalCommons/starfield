@@ -21,6 +21,7 @@ const MDESIGN_API_URL: &str = "https://ssd-api.jpl.nasa.gov/mdesign.api";
 const RADAR_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_radar.api";
 const SB_IDENT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_ident.api";
 const SBWOBS_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbwobs.api";
+const NHATS_API_URL: &str = "https://ssd-api.jpl.nasa.gov/nhats.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -200,6 +201,26 @@ impl SbdbClient {
         let query = params.to_query_params();
         let json = self.get_json(SBWOBS_API_URL, &query)?;
         parse_observability_response(&json)
+    }
+
+    /// Query NHATS accessible targets summary (Mode S).
+    ///
+    /// Returns a list of near-Earth asteroids accessible for human exploration,
+    /// filtered by mission constraints such as delta-v, duration, and stay time.
+    pub fn nhats_summary(&self, params: &NhatsParams) -> Result<NhatsSummaryResponse> {
+        let query = params.to_query_params();
+        let json = self.get_json(NHATS_API_URL, &query)?;
+        parse_nhats_summary_response(&json)
+    }
+
+    /// Query NHATS trajectory detail for a specific object (Mode O).
+    ///
+    /// Returns detailed trajectory information for a specific near-Earth asteroid,
+    /// including minimum delta-v and minimum duration trajectories.
+    pub fn nhats_object(&self, des: &str) -> Result<NhatsObjectResponse> {
+        let params = [("des", des.to_string())];
+        let json = self.get_json(NHATS_API_URL, &params)?;
+        parse_nhats_object_response(&json)
     }
 
     /// Perform a GET request and parse the JSON response
@@ -1339,6 +1360,100 @@ fn parse_observable_object(index: &HashMap<&str, usize>, row: &[Value]) -> Obser
     }
 }
 
+// ── NHATS ────────────────────────────────────────────────────────────────────
+
+use crate::sbdb::types::{
+    NhatsDvDur, NhatsObjectResponse, NhatsParams, NhatsSummaryEntry, NhatsSummaryResponse,
+    NhatsTrajectory,
+};
+
+fn parse_nhats_dv_dur(obj: &Value) -> NhatsDvDur {
+    NhatsDvDur {
+        dv: json_str(obj, "dv").and_then(|s| s.parse().ok()),
+        dur: json_str(obj, "dur").and_then(|s| s.parse().ok()),
+    }
+}
+
+fn parse_nhats_trajectory(obj: &Value) -> NhatsTrajectory {
+    NhatsTrajectory {
+        tid: json_str(obj, "tid"),
+        dv_total: json_str(obj, "dv_total").and_then(|s| s.parse().ok()),
+        dur_total: json_str(obj, "dur_total").and_then(|s| s.parse().ok()),
+        dur_out: json_str(obj, "dur_out").and_then(|s| s.parse().ok()),
+        dur_at: json_str(obj, "dur_at").and_then(|s| s.parse().ok()),
+        dur_ret: json_str(obj, "dur_ret").and_then(|s| s.parse().ok()),
+        launch: json_str(obj, "launch"),
+        c3: json_str(obj, "c3").and_then(|s| s.parse().ok()),
+        v_dep_earth: json_str(obj, "v_dep_earth").and_then(|s| s.parse().ok()),
+        dv_dep_park: json_str(obj, "dv_dep_park").and_then(|s| s.parse().ok()),
+        vrel_arr_neo: json_str(obj, "vrel_arr_neo").and_then(|s| s.parse().ok()),
+        vrel_dep_neo: json_str(obj, "vrel_dep_neo").and_then(|s| s.parse().ok()),
+        vrel_arr_earth: json_str(obj, "vrel_arr_earth").and_then(|s| s.parse().ok()),
+        v_arr_earth: json_str(obj, "v_arr_earth").and_then(|s| s.parse().ok()),
+        dec_dep: json_str(obj, "dec_dep").and_then(|s| s.parse().ok()),
+        dec_arr: json_str(obj, "dec_arr").and_then(|s| s.parse().ok()),
+    }
+}
+
+fn parse_nhats_summary_response(json: &Value) -> Result<NhatsSummaryResponse> {
+    let count = parse_count(json);
+    let mut data = Vec::new();
+
+    if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
+        for item in arr {
+            let n_via_traj = json_str(item, "n_via_traj")
+                .and_then(|s| s.parse().ok())
+                .or_else(|| {
+                    item.get("n_via_traj")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n as u32)
+                });
+
+            data.push(NhatsSummaryEntry {
+                des: json_str(item, "des").unwrap_or_default(),
+                fullname: json_str(item, "fullname"),
+                orbit_id: json_str(item, "orbit_id"),
+                h: json_str(item, "h").and_then(|s| s.parse().ok()),
+                min_size: json_str(item, "min_size").and_then(|s| s.parse().ok()),
+                max_size: json_str(item, "max_size").and_then(|s| s.parse().ok()),
+                size: json_str(item, "size").and_then(|s| s.parse().ok()),
+                occ: json_str(item, "occ").and_then(|s| s.parse().ok()),
+                min_dv: item.get("min_dv").map(parse_nhats_dv_dur),
+                min_dur: item.get("min_dur").map(parse_nhats_dv_dur),
+                n_via_traj,
+                obs_start: json_str(item, "obs_start"),
+                obs_end: json_str(item, "obs_end"),
+            });
+        }
+    }
+
+    Ok(NhatsSummaryResponse { count, data })
+}
+
+fn parse_nhats_object_response(json: &Value) -> Result<NhatsObjectResponse> {
+    let n_via_traj = json_str(json, "n_via_traj")
+        .and_then(|s| s.parse().ok())
+        .or_else(|| {
+            json.get("n_via_traj")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32)
+        });
+
+    Ok(NhatsObjectResponse {
+        des: json_str(json, "des").unwrap_or_default(),
+        fullname: json_str(json, "fullname"),
+        orbit_id: json_str(json, "orbit_id"),
+        h: json_str(json, "h").and_then(|s| s.parse().ok()),
+        min_size: json_str(json, "min_size").and_then(|s| s.parse().ok()),
+        max_size: json_str(json, "max_size").and_then(|s| s.parse().ok()),
+        size: json_str(json, "size").and_then(|s| s.parse().ok()),
+        occ: json_str(json, "occ").and_then(|s| s.parse().ok()),
+        n_via_traj,
+        min_dv_traj: json.get("min_dv_traj").map(parse_nhats_trajectory),
+        min_dur_traj: json.get("min_dur_traj").map(parse_nhats_trajectory),
+    })
+}
+
 // ── Shared Helpers ──────────────────────────────────────────────────────────
 
 /// Build a field name -> index mapping from a fields array
@@ -2405,5 +2520,173 @@ mod tests {
             .send()
             .expect("SBWOBS API unreachable");
         assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    fn test_nhats_params_default() {
+        let params = NhatsParams::default();
+        assert!(params.to_query_params().is_empty());
+    }
+
+    #[test]
+    fn test_nhats_params_with_filters() {
+        let params = NhatsParams {
+            dv: Some(6),
+            dur: Some(360),
+            stay: Some(16),
+            launch: Some("2025-2040".into()),
+            h: Some(26),
+            occ: Some(6),
+        };
+        let query = params.to_query_params();
+        let map: HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("dv").unwrap(), "6");
+        assert_eq!(map.get("dur").unwrap(), "360");
+        assert_eq!(map.get("stay").unwrap(), "16");
+        assert_eq!(map.get("launch").unwrap(), "2025-2040");
+        assert_eq!(map.get("h").unwrap(), "26");
+        assert_eq!(map.get("occ").unwrap(), "6");
+    }
+
+    #[test]
+    fn test_parse_nhats_summary_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": 2,
+            "data": [
+                {
+                    "des": "2000 SG344",
+                    "fullname": "2000 SG344",
+                    "orbit_id": "178",
+                    "h": "24.7",
+                    "min_size": "0.024",
+                    "max_size": "0.054",
+                    "occ": "0",
+                    "min_dv": {"dv": "3.961", "dur": "338.0"},
+                    "min_dur": {"dv": "6.474", "dur": "75.0"},
+                    "n_via_traj": 198,
+                    "obs_start": "2028-01-15",
+                    "obs_end": "2029-06-10"
+                },
+                {
+                    "des": "2006 RH120",
+                    "h": "29.5",
+                    "n_via_traj": "42"
+                }
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_nhats_summary_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.data.len(), 2);
+        assert_eq!(resp.data[0].des, "2000 SG344");
+        assert!((resp.data[0].h.unwrap() - 24.7).abs() < 0.1);
+        assert!((resp.data[0].min_dv.as_ref().unwrap().dv.unwrap() - 3.961).abs() < 0.001);
+        assert_eq!(resp.data[0].n_via_traj, Some(198));
+        assert_eq!(resp.data[0].obs_start.as_deref(), Some("2028-01-15"));
+        assert_eq!(resp.data[1].des, "2006 RH120");
+        assert_eq!(resp.data[1].n_via_traj, Some(42));
+    }
+
+    #[test]
+    fn test_parse_nhats_object_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "des": "2000 SG344",
+            "fullname": "2000 SG344",
+            "orbit_id": "178",
+            "h": "24.7",
+            "min_size": "0.024",
+            "max_size": "0.054",
+            "occ": "0",
+            "n_via_traj": 198,
+            "min_dv_traj": {
+                "tid": "1234",
+                "dv_total": "3.961",
+                "dur_total": "338.0",
+                "dur_out": "120.0",
+                "dur_at": "16.0",
+                "dur_ret": "202.0",
+                "launch": "2028-06-15",
+                "c3": "1.5",
+                "v_dep_earth": "1.22",
+                "dv_dep_park": "3.20",
+                "vrel_arr_neo": "0.38",
+                "vrel_dep_neo": "0.38",
+                "vrel_arr_earth": "2.15",
+                "v_arr_earth": "11.25",
+                "dec_dep": "28.5",
+                "dec_arr": "-15.2"
+            },
+            "min_dur_traj": {
+                "tid": "5678",
+                "dv_total": "6.474",
+                "dur_total": "75.0"
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_nhats_object_response(&json).unwrap();
+        assert_eq!(resp.des, "2000 SG344");
+        assert!((resp.h.unwrap() - 24.7).abs() < 0.1);
+        assert_eq!(resp.n_via_traj, Some(198));
+
+        let min_dv = resp.min_dv_traj.as_ref().unwrap();
+        assert_eq!(min_dv.tid.as_deref(), Some("1234"));
+        assert!((min_dv.dv_total.unwrap() - 3.961).abs() < 0.001);
+        assert!((min_dv.dur_out.unwrap() - 120.0).abs() < 0.1);
+        assert!((min_dv.c3.unwrap() - 1.5).abs() < 0.1);
+        assert!((min_dv.dec_dep.unwrap() - 28.5).abs() < 0.1);
+
+        let min_dur = resp.min_dur_traj.as_ref().unwrap();
+        assert_eq!(min_dur.tid.as_deref(), Some("5678"));
+        assert!((min_dur.dv_total.unwrap() - 6.474).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_nhats_summary_empty() {
+        let json: Value = serde_json::from_str(r#"{"count": 0, "data": []}"#).unwrap();
+        let resp = parse_nhats_summary_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.data.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_nhats_api_reachable() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .head(NHATS_API_URL)
+            .send()
+            .expect("NHATS API unreachable");
+        assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_nhats_summary_live() {
+        let client = SbdbClient::new().unwrap();
+        let params = NhatsParams {
+            dv: Some(6),
+            dur: Some(360),
+            ..Default::default()
+        };
+        let resp = client.nhats_summary(&params).unwrap();
+        assert!(resp.count > 0);
+        assert!(!resp.data.is_empty());
+        assert!(!resp.data[0].des.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_nhats_object_live() {
+        let client = SbdbClient::new().unwrap();
+        let resp = client.nhats_object("2000 SG344").unwrap();
+        assert_eq!(resp.des, "2000 SG344");
+        assert!(resp.n_via_traj.is_some());
     }
 }

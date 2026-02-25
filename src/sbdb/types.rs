@@ -1105,6 +1105,162 @@ pub struct ObservabilityResponse {
     pub objects: Vec<ObservableObject>,
 }
 
+/// Parameters for NHATS (Near-Earth Asteroid Human Space Flight Accessible Targets Survey) queries
+#[derive(Debug, Clone, Default)]
+pub struct NhatsParams {
+    /// Maximum total mission delta-v in km/s (4-12, default 12)
+    pub dv: Option<u32>,
+    /// Maximum total mission duration in days (60-450 in steps of 30, default 450)
+    pub dur: Option<u32>,
+    /// Minimum stay time at asteroid in days (8, 16, 24, or 32; default 8)
+    pub stay: Option<u32>,
+    /// Launch window (e.g., "2020-2045", "2025-2030")
+    pub launch: Option<String>,
+    /// Maximum absolute magnitude H (16-30, Mode S only)
+    pub h: Option<u32>,
+    /// Maximum orbit condition code (0-8, Mode S only)
+    pub occ: Option<u32>,
+}
+
+impl NhatsParams {
+    /// Convert parameters to query string pairs for the HTTP request
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+        if let Some(v) = self.dv {
+            params.push(("dv".into(), v.to_string()));
+        }
+        if let Some(v) = self.dur {
+            params.push(("dur".into(), v.to_string()));
+        }
+        if let Some(v) = self.stay {
+            params.push(("stay".into(), v.to_string()));
+        }
+        if let Some(ref v) = self.launch {
+            params.push(("launch".into(), v.clone()));
+        }
+        if let Some(v) = self.h {
+            params.push(("h".into(), v.to_string()));
+        }
+        if let Some(v) = self.occ {
+            params.push(("occ".into(), v.to_string()));
+        }
+        params
+    }
+}
+
+/// A delta-v / duration pair used in NHATS summary entries
+#[derive(Debug, Clone)]
+pub struct NhatsDvDur {
+    /// Delta-v (km/s)
+    pub dv: Option<f64>,
+    /// Duration (days)
+    pub dur: Option<f64>,
+}
+
+/// A trajectory record from the NHATS API (Mode O detail)
+#[derive(Debug, Clone)]
+pub struct NhatsTrajectory {
+    /// Trajectory ID
+    pub tid: Option<String>,
+    /// Total mission delta-v (km/s)
+    pub dv_total: Option<f64>,
+    /// Total mission duration (days)
+    pub dur_total: Option<f64>,
+    /// Outbound duration (days)
+    pub dur_out: Option<f64>,
+    /// Stay duration at asteroid (days)
+    pub dur_at: Option<f64>,
+    /// Return duration (days)
+    pub dur_ret: Option<f64>,
+    /// Launch date (YYYY-MM-DD)
+    pub launch: Option<String>,
+    /// Launch C3 energy (km^2/s^2)
+    pub c3: Option<f64>,
+    /// Departure velocity from Earth (km/s)
+    pub v_dep_earth: Option<f64>,
+    /// Delta-v to depart parking orbit (km/s)
+    pub dv_dep_park: Option<f64>,
+    /// Relative arrival velocity at NEO (km/s)
+    pub vrel_arr_neo: Option<f64>,
+    /// Relative departure velocity from NEO (km/s)
+    pub vrel_dep_neo: Option<f64>,
+    /// Relative arrival velocity at Earth (km/s)
+    pub vrel_arr_earth: Option<f64>,
+    /// Arrival velocity at Earth (km/s)
+    pub v_arr_earth: Option<f64>,
+    /// Departure declination (degrees)
+    pub dec_dep: Option<f64>,
+    /// Arrival declination (degrees)
+    pub dec_arr: Option<f64>,
+}
+
+/// A summary entry from the NHATS API (Mode S)
+#[derive(Debug, Clone)]
+pub struct NhatsSummaryEntry {
+    /// Object designation
+    pub des: String,
+    /// Full name
+    pub fullname: Option<String>,
+    /// Orbit solution ID
+    pub orbit_id: Option<String>,
+    /// Absolute magnitude H
+    pub h: Option<f64>,
+    /// Minimum estimated size (meters)
+    pub min_size: Option<f64>,
+    /// Maximum estimated size (meters)
+    pub max_size: Option<f64>,
+    /// Measured size (meters), if available
+    pub size: Option<f64>,
+    /// Orbit condition code
+    pub occ: Option<u32>,
+    /// Minimum delta-v trajectory summary (dv + dur)
+    pub min_dv: Option<NhatsDvDur>,
+    /// Minimum duration trajectory summary (dv + dur)
+    pub min_dur: Option<NhatsDvDur>,
+    /// Number of viable trajectories
+    pub n_via_traj: Option<u32>,
+    /// Observation window start date
+    pub obs_start: Option<String>,
+    /// Observation window end date
+    pub obs_end: Option<String>,
+}
+
+/// Response from the NHATS API in summary mode (Mode S)
+#[derive(Debug, Clone)]
+pub struct NhatsSummaryResponse {
+    /// Total number of accessible objects
+    pub count: u32,
+    /// List of accessible NEA entries
+    pub data: Vec<NhatsSummaryEntry>,
+}
+
+/// Response from the NHATS API in object detail mode (Mode O)
+#[derive(Debug, Clone)]
+pub struct NhatsObjectResponse {
+    /// Object designation
+    pub des: String,
+    /// Full name
+    pub fullname: Option<String>,
+    /// Orbit solution ID
+    pub orbit_id: Option<String>,
+    /// Absolute magnitude H
+    pub h: Option<f64>,
+    /// Minimum estimated size (meters)
+    pub min_size: Option<f64>,
+    /// Maximum estimated size (meters)
+    pub max_size: Option<f64>,
+    /// Measured size (meters), if available
+    pub size: Option<f64>,
+    /// Orbit condition code
+    pub occ: Option<u32>,
+    /// Number of viable trajectories
+    pub n_via_traj: Option<u32>,
+    /// Minimum delta-v trajectory detail
+    pub min_dv_traj: Option<NhatsTrajectory>,
+    /// Minimum duration trajectory detail
+    pub min_dur_traj: Option<NhatsTrajectory>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
