@@ -19,6 +19,7 @@ const SBDB_QUERY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbdb_query.api";
 const SCOUT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/scout.api";
 const MDESIGN_API_URL: &str = "https://ssd-api.jpl.nasa.gov/mdesign.api";
 const RADAR_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_radar.api";
+const SB_IDENT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_ident.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -178,6 +179,16 @@ impl SbdbClient {
         let query = params.to_query_params();
         let json = self.get_json(RADAR_API_URL, &query)?;
         parse_radar_response(&json)
+    }
+
+    /// Identify known small bodies within a specified field of view.
+    ///
+    /// Given an observer location, observation time, and field of view,
+    /// returns small bodies that fall within that region of sky.
+    pub fn identify(&self, params: &SbIdentParams) -> Result<SbIdentResponse> {
+        let query = params.to_query_params();
+        let json = self.get_json(SB_IDENT_API_URL, &query)?;
+        parse_sb_ident_response(&json)
     }
 
     /// Perform a GET request and parse the JSON response
@@ -1078,6 +1089,130 @@ fn parse_mission_flyby_row(index: &HashMap<&str, usize>, row: &[Value]) -> Missi
     }
 }
 
+// ── SB Identification ───────────────────────────────────────────────────────
+
+fn parse_sb_ident_response(json: &Value) -> Result<SbIdentResponse> {
+    let observer_obj = json.get("observer");
+    let observer = SbIdentObserverInfo {
+        obs_date: observer_obj.and_then(|o| json_str(o, "obs_date")),
+        location: observer_obj.and_then(|o| json_str(o, "location")),
+        fov_center: observer_obj.and_then(|o| json_str(o, "fov_center")),
+        fov_offset: observer_obj.and_then(|o| json_str(o, "fov_offset")),
+        frame: observer_obj.and_then(|o| json_str(o, "frame")),
+    };
+
+    let n_first_pass = json
+        .get("n_first_pass")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0) as u32;
+
+    let n_second_pass = json
+        .get("n_second_pass")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0) as u32;
+
+    let data_first_pass = parse_sb_ident_data(json, "fields_first", "data_first_pass");
+    let data_second_pass = parse_sb_ident_data(json, "fields_second", "data_second_pass");
+
+    let elem_first_pass = parse_sb_ident_elements(json, "elem_fields_first", "elem_first_pass");
+    let elem_second_pass = parse_sb_ident_elements(json, "elem_fields_second", "elem_second_pass");
+
+    Ok(SbIdentResponse {
+        observer,
+        n_first_pass,
+        n_second_pass,
+        data_first_pass,
+        data_second_pass,
+        elem_first_pass,
+        elem_second_pass,
+    })
+}
+
+fn parse_sb_ident_data(json: &Value, fields_key: &str, data_key: &str) -> Vec<SbIdentEntry> {
+    let fields = match json.get(fields_key).and_then(|f| f.as_array()) {
+        Some(f) => f
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>(),
+        None => return Vec::new(),
+    };
+
+    let data = match json.get(data_key).and_then(|d| d.as_array()) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let index = build_field_index(&fields);
+    let mut entries = Vec::new();
+
+    for row in data {
+        if let Some(arr) = row.as_array() {
+            entries.push(SbIdentEntry {
+                name: get_str(&index, arr, "Object name").unwrap_or_default(),
+                ra: get_str(&index, arr, "Astrometric RA"),
+                dec: get_str(&index, arr, "Astrometric Dec"),
+                ra_offset: get_f64(&index, arr, "RA offset (arcsec)"),
+                dec_offset: get_f64(&index, arr, "Dec offset (arcsec)"),
+                total_offset: get_f64(&index, arr, "total offset (arcsec)"),
+                vmag: get_f64(&index, arr, "visual magnitude V"),
+                ra_rate: get_f64(&index, arr, "RA rate (deg/sec)"),
+                dec_rate: get_f64(&index, arr, "Dec rate (deg/sec)"),
+                ra_err: get_f64(&index, arr, "RA error estimate (arcsec)"),
+                dec_err: get_f64(&index, arr, "Dec error estimate (arcsec)"),
+            });
+        }
+    }
+
+    entries
+}
+
+fn parse_sb_ident_elements(
+    json: &Value,
+    fields_key: &str,
+    data_key: &str,
+) -> Vec<SbIdentOrbitalElements> {
+    let fields = match json.get(fields_key).and_then(|f| f.as_array()) {
+        Some(f) => f
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>(),
+        None => return Vec::new(),
+    };
+
+    let data = match json.get(data_key).and_then(|d| d.as_array()) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let index = build_field_index(&fields);
+    let mut entries = Vec::new();
+
+    for row in data {
+        if let Some(arr) = row.as_array() {
+            entries.push(SbIdentOrbitalElements {
+                name: get_str(&index, arr, "Object name").unwrap_or_default(),
+                h: get_f64(&index, arr, "H"),
+                g: get_f64(&index, arr, "G"),
+                e: get_f64(&index, arr, "e"),
+                q: get_f64(&index, arr, "q (AU)"),
+                tp: get_f64(&index, arr, "tp (JD)"),
+                om: get_f64(&index, arr, "om (deg)"),
+                w: get_f64(&index, arr, "w (deg)"),
+                i: get_f64(&index, arr, "i (deg)"),
+                epoch: get_f64(&index, arr, "epoch (JD)"),
+            });
+        }
+    }
+
+    entries
+}
+
 // ── Shared Helpers ──────────────────────────────────────────────────────────
 
 /// Build a field name -> index mapping from a fields array
@@ -1867,5 +2002,172 @@ mod tests {
         assert!(resp.count > 0, "Expected radar data for asteroid 433 Eros");
         assert_eq!(resp.records.len(), resp.count as usize);
         assert_eq!(resp.records[0].designation, "433");
+    }
+
+    #[test]
+    fn test_parse_sb_ident_response_first_pass() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "signature": {"version": "1.1", "source": "NASA/JPL Small-Body Identification API"},
+            "observer": {
+                "obs_date": "2024-01-01 00:00:00",
+                "location": "F51 (Pan-STARRS 1)",
+                "fov_center": "05 00 00.0 +20 00 00.0",
+                "fov_offset": "1.0 x 1.0 deg",
+                "frame": "J2000"
+            },
+            "n_first_pass": 3,
+            "n_second_pass": 0,
+            "fields_first": ["Object name", "Astrometric RA", "Astrometric Dec", "RA offset (arcsec)", "Dec offset (arcsec)", "total offset (arcsec)", "visual magnitude V", "RA rate (deg/sec)", "Dec rate (deg/sec)", "RA error estimate (arcsec)", "Dec error estimate (arcsec)"],
+            "data_first_pass": [
+                ["(1036) Ganymed", "04 58 12.34", "+19 45 30.1", "-108.5", "-870.0", "876.7", "15.2", "0.000023", "-0.000012", "2.5", "1.8"],
+                ["(4179) Toutatis", "05 01 45.67", "+20 12 15.3", "26.3", "735.0", "735.5", "18.7", "0.000015", "0.000008", "5.1", "3.2"],
+                ["2024 AA1", "05 00 30.00", "+20 05 00.0", "7.5", "300.0", "300.1", "21.5", "0.000045", "-0.000020", "12.0", "10.0"]
+            ],
+            "data_second_pass": null
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_sb_ident_response(&json).unwrap();
+        assert_eq!(resp.n_first_pass, 3);
+        assert_eq!(resp.n_second_pass, 0);
+        assert_eq!(resp.data_first_pass.len(), 3);
+        assert!(resp.data_second_pass.is_empty());
+
+        assert_eq!(
+            resp.observer.obs_date.as_deref(),
+            Some("2024-01-01 00:00:00")
+        );
+        assert_eq!(resp.observer.frame.as_deref(), Some("J2000"));
+
+        let entry = &resp.data_first_pass[0];
+        assert_eq!(entry.name, "(1036) Ganymed");
+        assert_eq!(entry.ra.as_deref(), Some("04 58 12.34"));
+        assert_eq!(entry.dec.as_deref(), Some("+19 45 30.1"));
+        assert!((entry.ra_offset.unwrap() - (-108.5)).abs() < 1e-10);
+        assert!((entry.total_offset.unwrap() - 876.7).abs() < 1e-10);
+        assert!((entry.vmag.unwrap() - 15.2).abs() < 1e-10);
+        assert!(entry.ra_rate.is_some());
+        assert!(entry.dec_rate.is_some());
+        assert!(entry.ra_err.is_some());
+        assert!(entry.dec_err.is_some());
+    }
+
+    #[test]
+    fn test_parse_sb_ident_response_two_pass() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "observer": {
+                "obs_date": "2024-06-15 12:00:00",
+                "location": "Geocentric"
+            },
+            "n_first_pass": 2,
+            "n_second_pass": 1,
+            "fields_first": ["Object name", "Astrometric RA", "Astrometric Dec", "visual magnitude V"],
+            "data_first_pass": [
+                ["(433) Eros", "12 30 00.00", "+05 15 00.0", "12.5"],
+                ["(1862) Apollo", "12 31 00.00", "+05 10 00.0", "14.8"]
+            ],
+            "fields_second": ["Object name", "Astrometric RA", "Astrometric Dec", "visual magnitude V"],
+            "data_second_pass": [
+                ["(433) Eros", "12 30 00.12", "+05 14 59.8", "12.5"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_sb_ident_response(&json).unwrap();
+        assert_eq!(resp.n_first_pass, 2);
+        assert_eq!(resp.n_second_pass, 1);
+        assert_eq!(resp.data_first_pass.len(), 2);
+        assert_eq!(resp.data_second_pass.len(), 1);
+        assert_eq!(resp.data_second_pass[0].name, "(433) Eros");
+    }
+
+    #[test]
+    fn test_parse_sb_ident_response_with_elements() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "observer": {"obs_date": "2024-01-01"},
+            "n_first_pass": 1,
+            "n_second_pass": 0,
+            "fields_first": ["Object name", "visual magnitude V"],
+            "data_first_pass": [
+                ["(433) Eros", "12.5"]
+            ],
+            "elem_fields_first": ["Object name", "H", "G", "e", "q (AU)", "tp (JD)", "om (deg)", "w (deg)", "i (deg)", "epoch (JD)"],
+            "elem_first_pass": [
+                ["(433) Eros", "10.31", "0.46", "0.2229", "1.1334", "2460200.5", "304.32", "178.82", "10.83", "2460400.5"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_sb_ident_response(&json).unwrap();
+        assert_eq!(resp.elem_first_pass.len(), 1);
+        let elem = &resp.elem_first_pass[0];
+        assert_eq!(elem.name, "(433) Eros");
+        assert!((elem.h.unwrap() - 10.31).abs() < 1e-10);
+        assert!((elem.g.unwrap() - 0.46).abs() < 1e-10);
+        assert!((elem.e.unwrap() - 0.2229).abs() < 1e-4);
+        assert!((elem.q.unwrap() - 1.1334).abs() < 1e-4);
+        assert!((elem.i.unwrap() - 10.83).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_sb_ident_response_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "observer": {},
+            "n_first_pass": 0,
+            "n_second_pass": 0
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_sb_ident_response(&json).unwrap();
+        assert_eq!(resp.n_first_pass, 0);
+        assert_eq!(resp.n_second_pass, 0);
+        assert!(resp.data_first_pass.is_empty());
+        assert!(resp.data_second_pass.is_empty());
+        assert!(resp.elem_first_pass.is_empty());
+        assert!(resp.elem_second_pass.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_sb_ident_api_reachable() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .head(SB_IDENT_API_URL)
+            .send()
+            .expect("SB Ident API unreachable");
+        assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_sb_ident_api_live_query() {
+        let client = SbdbClient::new().unwrap();
+        let params = SbIdentParams {
+            observer: SbIdentObserver::MpcCode("F51".into()),
+            fov: SbIdentFov::Center {
+                ra_center: "05-00-00".into(),
+                dec_center: "20-00-00".into(),
+                ra_hwidth: Some(0.5),
+                dec_hwidth: Some(0.5),
+            },
+            obs_time: "2024-01-01".into(),
+            vmag_lim: Some(22.0),
+            two_pass: false,
+            mag_required: Some(true),
+            sb_kind: Some("a".into()),
+            sb_group: None,
+            req_elem: false,
+        };
+        let resp = client.identify(&params).unwrap();
+        assert!(resp.n_first_pass > 0 || resp.data_first_pass.is_empty());
+        assert!(resp.observer.obs_date.is_some());
     }
 }
