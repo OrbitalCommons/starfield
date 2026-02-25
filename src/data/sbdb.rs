@@ -16,6 +16,7 @@ const CAD_API_URL: &str = "https://ssd-api.jpl.nasa.gov/cad.api";
 const FIREBALL_API_URL: &str = "https://ssd-api.jpl.nasa.gov/fireball.api";
 const SENTRY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sentry.api";
 const SBDB_QUERY_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbdb_query.api";
+const SCOUT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/scout.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -93,6 +94,25 @@ impl SbdbClient {
         let query = params.to_query_params();
         let json = self.get_json(SBDB_QUERY_API_URL, &query)?;
         parse_sbdb_query_response(&json)
+    }
+
+    /// Get a summary of all objects on the NEOCP (Scout Mode S).
+    ///
+    /// Returns analysis data for unconfirmed objects on the Minor Planet Center's
+    /// Near-Earth Object Confirmation Page.
+    pub fn scout_summary(&self) -> Result<ScoutSummaryResponse> {
+        let params: [(String, String); 0] = [];
+        let json = self.get_json(SCOUT_API_URL, &params)?;
+        parse_scout_summary_response(&json)
+    }
+
+    /// Get detailed Scout analysis for a specific NEOCP object (Scout Mode O).
+    ///
+    /// The `tdes` parameter is the NEOCP temporary designation (e.g., "P10uUSw").
+    pub fn scout_object(&self, tdes: &str) -> Result<ScoutObjectResponse> {
+        let params = [("tdes", tdes.to_string()), ("orbits", "true".to_string())];
+        let json = self.get_json(SCOUT_API_URL, &params)?;
+        parse_scout_object_response(&json)
     }
 
     /// Perform a GET request and parse the JSON response
@@ -626,6 +646,159 @@ fn parse_sbdb_query_response(json: &Value) -> Result<SbdbQueryResponse> {
     })
 }
 
+// ── Scout (NEOCP Analysis) ──────────────────────────────────────────────────
+
+fn parse_scout_summary_entry(item: &Value) -> ScoutSummaryEntry {
+    ScoutSummaryEntry {
+        object_name: json_str(item, "objectName").unwrap_or_default(),
+        n_obs: json_str(item, "nObs")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("nObs").and_then(|v| v.as_u64()).map(|n| n as u32)),
+        arc: json_str(item, "arc")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("arc").and_then(|v| v.as_f64())),
+        rms_n: json_str(item, "rmsN")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("rmsN").and_then(|v| v.as_f64())),
+        h_mag: json_str(item, "H")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("H").and_then(|v| v.as_f64())),
+        rating: json_str(item, "rating")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("rating")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32)
+            }),
+        moid: json_str(item, "moid")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("moid").and_then(|v| v.as_f64())),
+        ca_dist: json_str(item, "caDist")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("caDist").and_then(|v| v.as_f64())),
+        v_inf: json_str(item, "vInf")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("vInf").and_then(|v| v.as_f64())),
+        pha_score: json_str(item, "phaScore")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("phaScore")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+            }),
+        neo_score: json_str(item, "neoScore")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("neoScore")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+            }),
+        geocentric_score: json_str(item, "geocentricScore")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("geocentricScore")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+            }),
+        ieo_score: json_str(item, "ieoScore")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("ieoScore")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+            }),
+        tisserand_score: json_str(item, "tisserandScore")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                item.get("tisserandScore")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32)
+            }),
+        last_run: json_str(item, "lastRun"),
+        ra: json_str(item, "ra"),
+        dec: json_str(item, "dec"),
+        elong: json_str(item, "elong"),
+        rate: json_str(item, "rate")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("rate").and_then(|v| v.as_f64())),
+        v_mag: json_str(item, "Vmag")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("Vmag").and_then(|v| v.as_f64())),
+        unc: json_str(item, "unc")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("unc").and_then(|v| v.as_f64())),
+        unc_p1: json_str(item, "uncP1")
+            .and_then(|s| s.parse().ok())
+            .or_else(|| item.get("uncP1").and_then(|v| v.as_f64())),
+    }
+}
+
+fn parse_scout_summary_response(json: &Value) -> Result<ScoutSummaryResponse> {
+    let count = parse_count(json);
+    let mut entries = Vec::new();
+
+    if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+        for item in data {
+            entries.push(parse_scout_summary_entry(item));
+        }
+    }
+
+    Ok(ScoutSummaryResponse {
+        count,
+        data: entries,
+    })
+}
+
+fn parse_scout_object_response(json: &Value) -> Result<ScoutObjectResponse> {
+    let summary = parse_scout_summary_entry(json);
+
+    let orbits = json.get("orbits").map(|o| {
+        let count = o
+            .get("count")
+            .and_then(|c| {
+                c.as_str()
+                    .and_then(|s| s.parse().ok())
+                    .or_else(|| c.as_u64().map(|n| n as u32))
+            })
+            .unwrap_or(0);
+
+        let fields = o
+            .get("fields")
+            .and_then(|f| f.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let data = o
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r.as_array().cloned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        ScoutOrbitData {
+            count,
+            fields,
+            data,
+        }
+    });
+
+    Ok(ScoutObjectResponse {
+        detail: ScoutObjectDetail {
+            summary,
+            neo1km_score: json_str(json, "neo1kmScore"),
+            t_ephem: json_str(json, "tEphem"),
+            orbits,
+        },
+    })
+}
+
 // ── Shared Helpers ──────────────────────────────────────────────────────────
 
 /// Build a field name -> index mapping from a fields array
@@ -875,6 +1048,250 @@ mod tests {
         assert!((orbit.eccentricity.unwrap() - 0.2229).abs() < 1e-4);
         assert!((orbit.semi_major_axis.unwrap() - 1.4583).abs() < 1e-4);
         assert!((orbit.inclination.unwrap() - 10.83).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_scout_summary_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "2",
+            "data": [
+                {
+                    "objectName": "P10uUSw",
+                    "nObs": 12,
+                    "arc": 1.5,
+                    "rmsN": 0.42,
+                    "H": 25.3,
+                    "rating": 67,
+                    "moid": 0.0012,
+                    "caDist": 0.003,
+                    "vInf": 12.5,
+                    "phaScore": 80,
+                    "neoScore": 95,
+                    "geocentricScore": 5,
+                    "ieoScore": 0,
+                    "tisserandScore": 10,
+                    "lastRun": "2024-06-15 12:30:00",
+                    "ra": "180.5",
+                    "dec": "-22.3",
+                    "elong": "145.2",
+                    "rate": 2.1,
+                    "Vmag": 21.5,
+                    "unc": 15.3,
+                    "uncP1": 45.7
+                },
+                {
+                    "objectName": "Q20xYZa",
+                    "nObs": 5,
+                    "arc": 0.3,
+                    "rmsN": 1.1,
+                    "H": 28.0,
+                    "rating": 12,
+                    "moid": null,
+                    "caDist": null,
+                    "vInf": null,
+                    "phaScore": 0,
+                    "neoScore": 50,
+                    "geocentricScore": 40,
+                    "ieoScore": 0,
+                    "tisserandScore": 0,
+                    "lastRun": "2024-06-14 08:00:00",
+                    "ra": "90.0",
+                    "dec": "45.0",
+                    "elong": "60.0",
+                    "rate": 0.5,
+                    "Vmag": 22.8,
+                    "unc": 120.0,
+                    "uncP1": 500.0
+                }
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_scout_summary_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.data.len(), 2);
+
+        let first = &resp.data[0];
+        assert_eq!(first.object_name, "P10uUSw");
+        assert_eq!(first.n_obs, Some(12));
+        assert!((first.arc.unwrap() - 1.5).abs() < 1e-10);
+        assert!((first.rms_n.unwrap() - 0.42).abs() < 1e-10);
+        assert!((first.h_mag.unwrap() - 25.3).abs() < 0.1);
+        assert_eq!(first.rating, Some(67));
+        assert!((first.moid.unwrap() - 0.0012).abs() < 1e-10);
+        assert!((first.ca_dist.unwrap() - 0.003).abs() < 1e-10);
+        assert!((first.v_inf.unwrap() - 12.5).abs() < 0.1);
+        assert_eq!(first.pha_score, Some(80));
+        assert_eq!(first.neo_score, Some(95));
+        assert_eq!(first.geocentric_score, Some(5));
+        assert_eq!(first.ieo_score, Some(0));
+        assert_eq!(first.tisserand_score, Some(10));
+        assert_eq!(first.last_run.as_deref(), Some("2024-06-15 12:30:00"));
+        assert_eq!(first.ra.as_deref(), Some("180.5"));
+        assert_eq!(first.dec.as_deref(), Some("-22.3"));
+        assert_eq!(first.elong.as_deref(), Some("145.2"));
+        assert!((first.rate.unwrap() - 2.1).abs() < 0.1);
+        assert!((first.v_mag.unwrap() - 21.5).abs() < 0.1);
+        assert!((first.unc.unwrap() - 15.3).abs() < 0.1);
+        assert!((first.unc_p1.unwrap() - 45.7).abs() < 0.1);
+
+        let second = &resp.data[1];
+        assert_eq!(second.object_name, "Q20xYZa");
+        assert_eq!(second.n_obs, Some(5));
+        assert_eq!(second.moid, None);
+        assert_eq!(second.ca_dist, None);
+        assert_eq!(second.v_inf, None);
+    }
+
+    #[test]
+    fn test_parse_scout_summary_string_values() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "1",
+            "data": [
+                {
+                    "objectName": "A10bCdE",
+                    "nObs": "8",
+                    "arc": "2.5",
+                    "rmsN": "0.55",
+                    "H": "26.1",
+                    "rating": "45",
+                    "moid": "0.005",
+                    "caDist": "0.01",
+                    "vInf": "8.2",
+                    "phaScore": "60",
+                    "neoScore": "70",
+                    "geocentricScore": "15",
+                    "ieoScore": "3",
+                    "tisserandScore": "5",
+                    "lastRun": "2024-07-01 00:00:00",
+                    "ra": "270.0",
+                    "dec": "10.0",
+                    "elong": "90.0",
+                    "rate": "1.0",
+                    "Vmag": "20.0",
+                    "unc": "30.0",
+                    "uncP1": "100.0"
+                }
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_scout_summary_response(&json).unwrap();
+        assert_eq!(resp.count, 1);
+        let entry = &resp.data[0];
+        assert_eq!(entry.object_name, "A10bCdE");
+        assert_eq!(entry.n_obs, Some(8));
+        assert!((entry.arc.unwrap() - 2.5).abs() < 1e-10);
+        assert_eq!(entry.pha_score, Some(60));
+        assert_eq!(entry.ieo_score, Some(3));
+    }
+
+    #[test]
+    fn test_parse_scout_object_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "objectName": "P10uUSw",
+            "nObs": 12,
+            "arc": 1.5,
+            "rmsN": 0.42,
+            "H": 25.3,
+            "rating": 67,
+            "moid": 0.0012,
+            "caDist": 0.003,
+            "vInf": 12.5,
+            "phaScore": 80,
+            "neoScore": 95,
+            "geocentricScore": 5,
+            "ieoScore": 0,
+            "tisserandScore": 10,
+            "lastRun": "2024-06-15 12:30:00",
+            "ra": "180.5",
+            "dec": "-22.3",
+            "elong": "145.2",
+            "rate": 2.1,
+            "Vmag": 21.5,
+            "unc": 15.3,
+            "uncP1": 45.7,
+            "neo1kmScore": "0.015",
+            "tEphem": "2024-06-15 12:00:00",
+            "orbits": {
+                "count": "3",
+                "fields": ["idx", "epoch", "ec", "qr", "tp", "om", "w", "inc", "H"],
+                "data": [
+                    [0, "2460476.5", "0.35", "0.85", "2460450.0", "120.5", "45.2", "12.3", "25.3"],
+                    [1, "2460476.5", "0.42", "0.90", "2460451.0", "121.0", "46.0", "13.0", "25.5"],
+                    [2, "2460476.5", "0.30", "0.80", "2460449.0", "119.8", "44.5", "11.8", "25.1"]
+                ]
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_scout_object_response(&json).unwrap();
+        assert_eq!(resp.detail.summary.object_name, "P10uUSw");
+        assert_eq!(resp.detail.summary.n_obs, Some(12));
+        assert!((resp.detail.summary.h_mag.unwrap() - 25.3).abs() < 0.1);
+        assert_eq!(resp.detail.neo1km_score.as_deref(), Some("0.015"));
+        assert_eq!(resp.detail.t_ephem.as_deref(), Some("2024-06-15 12:00:00"));
+
+        let orbits = resp.detail.orbits.unwrap();
+        assert_eq!(orbits.count, 3);
+        assert_eq!(orbits.fields.len(), 9);
+        assert_eq!(orbits.fields[0], "idx");
+        assert_eq!(orbits.data.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_scout_object_no_orbits() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "objectName": "Z99test",
+            "nObs": 3,
+            "arc": 0.1,
+            "H": 30.0,
+            "rating": 5,
+            "neoScore": 10,
+            "lastRun": "2024-01-01 00:00:00"
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_scout_object_response(&json).unwrap();
+        assert_eq!(resp.detail.summary.object_name, "Z99test");
+        assert_eq!(resp.detail.summary.n_obs, Some(3));
+        assert!(resp.detail.orbits.is_none());
+        assert!(resp.detail.neo1km_score.is_none());
+        assert!(resp.detail.t_ephem.is_none());
+    }
+
+    #[test]
+    fn test_parse_scout_summary_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "count": "0",
+            "data": []
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_scout_summary_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.data.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_scout_api_live_summary() {
+        let client = SbdbClient::new().unwrap();
+        let resp = client.scout_summary().unwrap();
+        assert!(resp.count > 0 || resp.data.is_empty());
+        for entry in &resp.data {
+            assert!(!entry.object_name.is_empty());
+        }
     }
 
     #[test]

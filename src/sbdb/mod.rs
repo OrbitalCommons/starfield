@@ -8,6 +8,7 @@
 //! - **Close Approach Data (CAD)** — asteroid/comet close approaches to planets
 //! - **Fireball** — atmospheric impact events
 //! - **Sentry** — Earth impact risk monitoring
+//! - **Scout** — NEOCP unconfirmed object analysis
 //!
 //! No API key or authentication is required.
 //!
@@ -43,6 +44,7 @@ pub use crate::data::sbdb::{
 };
 
 pub use types::{
-    CloseApproachRecord, FireballRecord, OrbitClass, PhysicalParams, SentryEntry, Signature,
-    SmallBodyObject, SmallBodyOrbit,
+    CloseApproachRecord, FireballRecord, OrbitClass, PhysicalParams, ScoutObjectDetail,
+    ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry,
+    Signature, SmallBodyObject, SmallBodyOrbit,
 };

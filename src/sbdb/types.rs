@@ -263,6 +263,95 @@ pub struct SentryEntry {
     pub ip_range: Option<String>,
 }
 
+/// A summary entry from the Scout NEOCP analysis API (Mode S)
+#[derive(Debug, Clone)]
+pub struct ScoutSummaryEntry {
+    /// NEOCP temporary designation
+    pub object_name: String,
+    /// Number of observations
+    pub n_obs: Option<u32>,
+    /// Observation arc (days)
+    pub arc: Option<f64>,
+    /// Normalized RMS residual
+    pub rms_n: Option<f64>,
+    /// Estimated absolute magnitude
+    pub h_mag: Option<f64>,
+    /// Interest rating (0-100, higher = more interesting)
+    pub rating: Option<u32>,
+    /// Minimum orbit intersection distance (AU)
+    pub moid: Option<f64>,
+    /// Close approach distance (AU)
+    pub ca_dist: Option<f64>,
+    /// Velocity at infinity (km/s)
+    pub v_inf: Option<f64>,
+    /// PHA likelihood score
+    pub pha_score: Option<i32>,
+    /// NEO likelihood score
+    pub neo_score: Option<i32>,
+    /// Geocentric orbit likelihood
+    pub geocentric_score: Option<i32>,
+    /// Interior Earth orbit likelihood
+    pub ieo_score: Option<i32>,
+    /// Tisserand parameter score (comet vs asteroid)
+    pub tisserand_score: Option<i32>,
+    /// Last analysis run time
+    pub last_run: Option<String>,
+    /// Right ascension
+    pub ra: Option<String>,
+    /// Declination
+    pub dec: Option<String>,
+    /// Solar elongation
+    pub elong: Option<String>,
+    /// Rate of motion
+    pub rate: Option<f64>,
+    /// Estimated visual magnitude
+    pub v_mag: Option<f64>,
+    /// Positional uncertainty (arcsec)
+    pub unc: Option<f64>,
+    /// Positional uncertainty at +1 day (arcsec)
+    pub unc_p1: Option<f64>,
+}
+
+/// Detailed data for a single Scout NEOCP object (Mode O)
+#[derive(Debug, Clone)]
+pub struct ScoutObjectDetail {
+    /// All summary-level fields
+    pub summary: ScoutSummaryEntry,
+    /// NEO 1km impact score
+    pub neo1km_score: Option<String>,
+    /// Ephemeris time
+    pub t_ephem: Option<String>,
+    /// Sampled orbit data (fields + rows)
+    pub orbits: Option<ScoutOrbitData>,
+}
+
+/// Sampled orbit data from Scout object detail
+#[derive(Debug, Clone)]
+pub struct ScoutOrbitData {
+    /// Number of sampled orbits
+    pub count: u32,
+    /// Field names for orbit columns
+    pub fields: Vec<String>,
+    /// Raw orbit data rows
+    pub data: Vec<Vec<serde_json::Value>>,
+}
+
+/// Response from the Scout summary endpoint (Mode S)
+#[derive(Debug, Clone)]
+pub struct ScoutSummaryResponse {
+    /// Total number of NEOCP objects
+    pub count: u32,
+    /// Summary entries for each object
+    pub data: Vec<ScoutSummaryEntry>,
+}
+
+/// Response from the Scout object detail endpoint (Mode O)
+#[derive(Debug, Clone)]
+pub struct ScoutObjectResponse {
+    /// Detailed object data
+    pub detail: ScoutObjectDetail,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
