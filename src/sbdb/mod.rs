@@ -12,6 +12,7 @@
 //! - **Mission Design** — trajectory parameters for small-body missions
 //! - **SB Radar** — radar astrometry measurements
 //! - **SB Identification** — identify small bodies within a field of view
+//! - **SB What's Observable** — small bodies observable from a given location
 //!
 //! No API key or authentication is required.
 //!
@@ -49,9 +50,10 @@ pub use crate::data::sbdb::{
 pub use types::{
     CloseApproachRecord, FireballRecord, MissionAccessibleEntry, MissionAccessibleParams,
     MissionAccessibleResponse, MissionDesignCriterion, MissionFlybyEntry, MissionFlybyParams,
-    MissionFlybyResponse, MissionQueryObject, MissionQueryResponse, OrbitClass, PhysicalParams,
-    RadarParams, RadarRecord, RadarResponse, SbIdentEntry, SbIdentFov, SbIdentObserver,
-    SbIdentObserverInfo, SbIdentOrbitalElements, SbIdentParams, SbIdentResponse, ScoutObjectDetail,
-    ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry,
-    Signature, SmallBodyObject, SmallBodyOrbit,
+    MissionFlybyResponse, MissionQueryObject, MissionQueryResponse, ObservabilityNightInfo,
+    ObservabilityObserver, ObservabilityParams, ObservabilityResponse, ObservableObject,
+    OrbitClass, PhysicalParams, RadarParams, RadarRecord, RadarResponse, SbIdentEntry, SbIdentFov,
+    SbIdentObserver, SbIdentObserverInfo, SbIdentOrbitalElements, SbIdentParams, SbIdentResponse,
+    ScoutObjectDetail, ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry,
+    ScoutSummaryResponse, SentryEntry, Signature, SmallBodyObject, SmallBodyOrbit,
 };

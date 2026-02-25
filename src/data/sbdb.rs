@@ -20,6 +20,7 @@ const SCOUT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/scout.api";
 const MDESIGN_API_URL: &str = "https://ssd-api.jpl.nasa.gov/mdesign.api";
 const RADAR_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_radar.api";
 const SB_IDENT_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sb_ident.api";
+const SBWOBS_API_URL: &str = "https://ssd-api.jpl.nasa.gov/sbwobs.api";
 
 /// Client for the JPL Small-Body Database API ecosystem
 pub struct SbdbClient {
@@ -189,6 +190,16 @@ impl SbdbClient {
         let query = params.to_query_params();
         let json = self.get_json(SB_IDENT_API_URL, &query)?;
         parse_sb_ident_response(&json)
+    }
+
+    /// Query which small bodies are observable from a given location on a given night.
+    ///
+    /// Returns night information (sunset/sunrise, twilight times, moon data) and
+    /// a list of observable objects with their ephemeris data.
+    pub fn observability(&self, params: &ObservabilityParams) -> Result<ObservabilityResponse> {
+        let query = params.to_query_params();
+        let json = self.get_json(SBWOBS_API_URL, &query)?;
+        parse_observability_response(&json)
     }
 
     /// Perform a GET request and parse the JSON response
@@ -1213,6 +1224,121 @@ fn parse_sb_ident_elements(
     entries
 }
 
+// ── SB Observability ────────────────────────────────────────────────────────
+
+fn parse_observability_response(json: &Value) -> Result<ObservabilityResponse> {
+    let night_info = json
+        .get("obs_night")
+        .map(parse_night_info)
+        .unwrap_or_else(default_night_info);
+
+    let total = json
+        .get("total_objects")
+        .and_then(|v| {
+            v.as_u64()
+                .map(|n| n as u32)
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0);
+
+    let fields = json
+        .get("fields")
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = json.get("data").and_then(|d| d.as_array());
+    let index = build_field_index(&fields);
+    let mut objects = Vec::new();
+
+    if let Some(rows) = data {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                objects.push(parse_observable_object(&index, arr));
+            }
+        }
+    }
+
+    Ok(ObservabilityResponse {
+        night_info,
+        count: total,
+        objects,
+    })
+}
+
+fn parse_night_info(night: &Value) -> ObservabilityNightInfo {
+    ObservabilityNightInfo {
+        sun_set: json_str(night, "sun_set"),
+        sun_rise: json_str(night, "sun_rise"),
+        sun_set_az: json_str(night, "sun_set_az"),
+        sun_rise_az: json_str(night, "sun_rise_az"),
+        begin_astronomical: json_str(night, "begin_astronomical"),
+        end_astronomical: json_str(night, "end_astronomical"),
+        begin_civil: json_str(night, "begin_civil"),
+        end_civil: json_str(night, "end_civil"),
+        begin_nautical: json_str(night, "begin_nautical"),
+        end_nautical: json_str(night, "end_nautical"),
+        moon_rise: json_str(night, "moon_rise"),
+        moon_rise_phase: json_str(night, "moon_rise_phase"),
+        moon_set: json_str(night, "moon_set"),
+        moon_set_phase: json_str(night, "moon_set_phase"),
+        transit: json_str(night, "transit"),
+        transit_phase: json_str(night, "transit_phase"),
+        begin_dark: json_str(night, "begin_dark"),
+        mid_dark: json_str(night, "mid_dark"),
+        end_dark: json_str(night, "end_dark"),
+        dark_time: json_str(night, "dark_time"),
+    }
+}
+
+fn default_night_info() -> ObservabilityNightInfo {
+    ObservabilityNightInfo {
+        sun_set: None,
+        sun_rise: None,
+        sun_set_az: None,
+        sun_rise_az: None,
+        begin_astronomical: None,
+        end_astronomical: None,
+        begin_civil: None,
+        end_civil: None,
+        begin_nautical: None,
+        end_nautical: None,
+        moon_rise: None,
+        moon_rise_phase: None,
+        moon_set: None,
+        moon_set_phase: None,
+        transit: None,
+        transit_phase: None,
+        begin_dark: None,
+        mid_dark: None,
+        end_dark: None,
+        dark_time: None,
+    }
+}
+
+fn parse_observable_object(index: &HashMap<&str, usize>, row: &[Value]) -> ObservableObject {
+    ObservableObject {
+        des: get_str(index, row, "des").unwrap_or_default(),
+        fullname: get_str(index, row, "fullname"),
+        rise: get_str(index, row, "rise"),
+        transit: get_str(index, row, "trans"),
+        set: get_str(index, row, "set"),
+        max_time: get_str(index, row, "maxt"),
+        ra: get_str(index, row, "ra"),
+        dec: get_str(index, row, "dec"),
+        vmag: get_f64(index, row, "vmag"),
+        helio_range_au: get_f64(index, row, "helio"),
+        topo_range_au: get_f64(index, row, "topo"),
+        sun_angle: get_f64(index, row, "oes"),
+        moon_angle: get_f64(index, row, "oem"),
+        galactic_lat: get_f64(index, row, "glat"),
+    }
+}
+
 // ── Shared Helpers ──────────────────────────────────────────────────────────
 
 /// Build a field name -> index mapping from a fields array
@@ -2169,5 +2295,115 @@ mod tests {
         let resp = client.identify(&params).unwrap();
         assert!(resp.n_first_pass > 0 || resp.data_first_pass.is_empty());
         assert!(resp.observer.obs_date.is_some());
+    }
+
+    #[test]
+    fn test_parse_observability_response() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "signature": {"version": "1.0", "source": "NASA/JPL ... API"},
+            "location": "Mt. Lemmon Survey (G96)",
+            "total_objects": 2,
+            "shown_objects": 2,
+            "obs_night": {
+                "sun_set": "2026-Mar-01 01:15",
+                "sun_rise": "2026-Mar-01 13:30",
+                "sun_set_az": "258.3",
+                "sun_rise_az": "101.7",
+                "begin_astronomical": "2026-Mar-01 02:45",
+                "end_astronomical": "2026-Mar-01 12:00",
+                "begin_civil": "2026-Mar-01 01:40",
+                "end_civil": "2026-Mar-01 13:05",
+                "begin_nautical": "2026-Mar-01 02:12",
+                "end_nautical": "2026-Mar-01 12:33",
+                "moon_rise": "2026-Mar-01 15:20",
+                "moon_rise_phase": "0.85",
+                "moon_set": "2026-Mar-01 04:10",
+                "moon_set_phase": "0.84",
+                "transit": "2026-Mar-01 09:45",
+                "transit_phase": "0.85",
+                "begin_dark": "2026-Mar-01 04:10",
+                "mid_dark": "2026-Mar-01 07:20",
+                "end_dark": "2026-Mar-01 12:00",
+                "dark_time": "7.83"
+            },
+            "fields": ["des", "fullname", "rise", "trans", "set", "maxt", "ra", "dec", "vmag", "helio", "topo", "oes", "oem", "glat"],
+            "data": [
+                ["1", "1 Ceres", "2026-Mar-01 02:00", "2026-Mar-01 07:30", "2026-Mar-01 12:00", "10:00", "06 45 12.3", "+23 15 45", "8.5", "2.769", "2.105", "145.2", "67.8", "12.3"],
+                ["4", "4 Vesta", "2026-Mar-01 03:00", "2026-Mar-01 08:00", "2026-Mar-01 11:30", "08:30", "10 12 34.5", "-05 30 22", "7.2", "1.876", "1.234", "160.5", "89.1", "-25.7"]
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_observability_response(&json).unwrap();
+        assert_eq!(resp.count, 2);
+        assert_eq!(resp.objects.len(), 2);
+
+        // Night info
+        assert_eq!(
+            resp.night_info.sun_set.as_deref(),
+            Some("2026-Mar-01 01:15")
+        );
+        assert_eq!(
+            resp.night_info.sun_rise.as_deref(),
+            Some("2026-Mar-01 13:30")
+        );
+        assert_eq!(
+            resp.night_info.begin_astronomical.as_deref(),
+            Some("2026-Mar-01 02:45")
+        );
+        assert_eq!(resp.night_info.moon_rise_phase.as_deref(), Some("0.85"));
+        assert_eq!(resp.night_info.dark_time.as_deref(), Some("7.83"));
+
+        // First object: Ceres
+        let ceres = &resp.objects[0];
+        assert_eq!(ceres.des, "1");
+        assert_eq!(ceres.fullname.as_deref(), Some("1 Ceres"));
+        assert_eq!(ceres.rise.as_deref(), Some("2026-Mar-01 02:00"));
+        assert_eq!(ceres.transit.as_deref(), Some("2026-Mar-01 07:30"));
+        assert_eq!(ceres.ra.as_deref(), Some("06 45 12.3"));
+        assert!((ceres.vmag.unwrap() - 8.5).abs() < 0.01);
+        assert!((ceres.helio_range_au.unwrap() - 2.769).abs() < 0.001);
+        assert!((ceres.topo_range_au.unwrap() - 2.105).abs() < 0.001);
+        assert!((ceres.sun_angle.unwrap() - 145.2).abs() < 0.1);
+        assert!((ceres.moon_angle.unwrap() - 67.8).abs() < 0.1);
+        assert!((ceres.galactic_lat.unwrap() - 12.3).abs() < 0.1);
+
+        // Second object: Vesta
+        let vesta = &resp.objects[1];
+        assert_eq!(vesta.des, "4");
+        assert!((vesta.vmag.unwrap() - 7.2).abs() < 0.01);
+        assert!((vesta.galactic_lat.unwrap() - (-25.7)).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_parse_observability_response_empty() {
+        let json: Value = serde_json::from_str(
+            r#"{
+            "signature": {"version": "1.0", "source": "NASA/JPL ... API"},
+            "total_objects": 0,
+            "shown_objects": 0,
+            "fields": ["des", "fullname", "rise", "trans", "set", "maxt", "ra", "dec", "vmag", "helio", "topo", "oes", "oem", "glat"],
+            "data": []
+        }"#,
+        )
+        .unwrap();
+
+        let resp = parse_observability_response(&json).unwrap();
+        assert_eq!(resp.count, 0);
+        assert!(resp.objects.is_empty());
+        assert!(resp.night_info.sun_set.is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_sbwobs_api_reachable() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .head(SBWOBS_API_URL)
+            .send()
+            .expect("SBWOBS API unreachable");
+        assert!(resp.status().is_success() || resp.status().as_u16() == 405);
     }
 }
