@@ -39,8 +39,8 @@ pub mod parser;
 
 pub use crate::data::horizons::{
     Center, Command, EphemType, EphemerisRequest, HorizonsClient, HorizonsResponse, LookupMatch,
-    LookupResponse, ObjectGroup, OutputUnits, ReferencePlane, Signature, TimeSpec, VecCorrection,
-    VecTable,
+    LookupResponse, ObjectGroup, OutputUnits, ReferencePlane, Signature, SpkResponse, TimeSpec,
+    VecCorrection, VecTable,
 };
 
 pub use parser::{ElementsRow, ObserverRow, VectorRow};
