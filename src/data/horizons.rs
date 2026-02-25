@@ -6,9 +6,12 @@
 //!
 //! No API key or authentication is required.
 
+use crate::jplephem::kernel::SpiceKernel;
 use crate::{Result, StarfieldError};
+use base64::Engine;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Base URL for the HORIZONS ephemeris API
 const HORIZONS_API_URL: &str = "https://ssd.jpl.nasa.gov/api/horizons.api";
@@ -87,7 +90,7 @@ impl Command {
 }
 
 /// Ephemeris output type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EphemType {
     /// Observer-table: sky-plane observables (RA/Dec, magnitude, etc.)
     Observer,
@@ -95,6 +98,8 @@ pub enum EphemType {
     Vectors,
     /// Elements: osculating Keplerian orbital elements
     Elements,
+    /// SPK: binary SPICE kernel file (small bodies only)
+    Spk,
 }
 
 impl EphemType {
@@ -103,6 +108,7 @@ impl EphemType {
             EphemType::Observer => "OBSERVER",
             EphemType::Vectors => "VECTORS",
             EphemType::Elements => "ELEMENTS",
+            EphemType::Spk => "SPK",
         }
     }
 }
@@ -329,6 +335,32 @@ impl EphemerisRequest {
         }
     }
 
+    /// Create a request for a binary SPK ephemeris file (small bodies only)
+    ///
+    /// SPK requests only use `COMMAND`, `START_TIME`, and `STOP_TIME`.
+    /// All other ephemeris parameters are ignored by the HORIZONS API.
+    pub fn spk(command: Command, start: &str, stop: &str) -> Self {
+        Self {
+            command,
+            ephem_type: EphemType::Spk,
+            center: Center::SolarSystemBarycenter,
+            time_spec: TimeSpec::Range {
+                start: start.to_string(),
+                stop: stop.to_string(),
+                step: "1 d".to_string(),
+            },
+            obj_data: false,
+            vec_table: None,
+            out_units: None,
+            vec_corr: None,
+            ref_plane: None,
+            quantities: None,
+            ang_format: None,
+            csv_format: false,
+            extra_prec: false,
+        }
+    }
+
     /// Build query parameters for the HTTP request
     fn to_query_params(&self) -> Vec<(String, String)> {
         let mut params: Vec<(String, String)> = Vec::new();
@@ -490,6 +522,15 @@ impl LookupResponse {
     }
 }
 
+/// Decoded response from a HORIZONS SPK ephemeris request
+#[derive(Debug, Clone)]
+pub struct SpkResponse {
+    /// Raw binary SPK file content
+    pub raw_spk: Vec<u8>,
+    /// Suggested filename from the API (e.g., "2000433.bsp")
+    pub spk_file_id: Option<String>,
+}
+
 /// HTTP client for the HORIZONS API
 pub struct HorizonsClient {
     client: reqwest::blocking::Client,
@@ -573,6 +614,61 @@ impl HorizonsClient {
         })?;
 
         Ok(body)
+    }
+
+    /// Generate an SPK binary ephemeris and return the decoded bytes
+    ///
+    /// Sends an SPK-type query to HORIZONS, extracts the base64-encoded `spk`
+    /// field from the JSON response, and decodes it to raw bytes.
+    /// Only works for small bodies (asteroids and comets).
+    pub fn generate_spk(&self, request: &EphemerisRequest) -> Result<SpkResponse> {
+        if request.ephem_type != EphemType::Spk {
+            return Err(StarfieldError::DataError(
+                "generate_spk requires EphemType::Spk".to_string(),
+            ));
+        }
+
+        let response = self.query(request)?;
+
+        let spk_b64 = response.spk.ok_or_else(|| {
+            StarfieldError::DataError(
+                "HORIZONS response missing 'spk' field for SPK request".to_string(),
+            )
+        })?;
+
+        let raw_spk = base64::engine::general_purpose::STANDARD
+            .decode(&spk_b64)
+            .map_err(|e| {
+                StarfieldError::DataError(format!("Failed to decode SPK base64 data: {}", e))
+            })?;
+
+        Ok(SpkResponse {
+            raw_spk,
+            spk_file_id: response.spk_file_id,
+        })
+    }
+
+    /// Generate an SPK binary ephemeris and save it to a file
+    ///
+    /// Combines `generate_spk` with writing the decoded bytes to disk.
+    pub fn generate_spk_to_file(
+        &self,
+        request: &EphemerisRequest,
+        path: &Path,
+    ) -> Result<SpkResponse> {
+        let spk_response = self.generate_spk(request)?;
+        std::fs::write(path, &spk_response.raw_spk)?;
+        Ok(spk_response)
+    }
+
+    /// Generate an SPK binary ephemeris and load it as a SpiceKernel
+    ///
+    /// Combines `generate_spk` with parsing the binary data into a
+    /// ready-to-use `SpiceKernel` for position computations.
+    pub fn generate_spk_kernel(&self, request: &EphemerisRequest) -> Result<SpiceKernel> {
+        let spk_response = self.generate_spk(request)?;
+        SpiceKernel::from_bytes(&spk_response.raw_spk)
+            .map_err(|e| StarfieldError::DataError(format!("Failed to parse SPK kernel: {}", e)))
     }
 }
 
@@ -896,5 +992,66 @@ mod tests {
             .send()
             .expect("HORIZONS lookup API unreachable");
         assert!(resp.status().is_success() || resp.status().as_u16() == 405);
+    }
+
+    #[test]
+    fn test_spk_ephem_type_serializes() {
+        let req = EphemerisRequest::spk(Command::Asteroid(433), "2024-01-01", "2025-01-01");
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("EPHEM_TYPE").unwrap(), "SPK");
+        assert_eq!(map.get("COMMAND").unwrap(), "'433;'");
+        assert_eq!(map.get("START_TIME").unwrap(), "'2024-01-01'");
+        assert_eq!(map.get("STOP_TIME").unwrap(), "'2025-01-01'");
+    }
+
+    #[test]
+    fn test_spk_base64_decode() {
+        let original_bytes: Vec<u8> = vec![
+            0x44, 0x41, 0x46, 0x2F, 0x53, 0x50, 0x4B, 0x20, // "DAF/SPK "
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        ];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&original_bytes);
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .unwrap();
+        assert_eq!(decoded, original_bytes);
+    }
+
+    #[test]
+    fn test_spk_response_struct() {
+        let resp = SpkResponse {
+            raw_spk: vec![0xDE, 0xAD, 0xBE, 0xEF],
+            spk_file_id: Some("2000433.bsp".to_string()),
+        };
+        assert_eq!(resp.raw_spk.len(), 4);
+        assert_eq!(resp.spk_file_id.as_deref(), Some("2000433.bsp"));
+    }
+
+    #[test]
+    #[ignore]
+    fn test_generate_spk_asteroid_433_eros() {
+        let client = HorizonsClient::new().expect("Failed to create HORIZONS client");
+        let request = EphemerisRequest::spk(Command::Asteroid(433), "2024-01-01", "2025-01-01");
+        let spk_response = client
+            .generate_spk(&request)
+            .expect("Failed to generate SPK for 433 Eros");
+
+        // SPK binary files start with the DAF file record
+        assert!(
+            spk_response.raw_spk.len() > 1024,
+            "SPK file too small: {} bytes",
+            spk_response.raw_spk.len()
+        );
+        let header = std::str::from_utf8(&spk_response.raw_spk[..7]).unwrap_or("");
+        assert_eq!(
+            header, "DAF/SPK",
+            "SPK file should start with DAF/SPK magic"
+        );
+
+        // Verify we can parse it as a SpiceKernel
+        let _kernel = SpiceKernel::from_bytes(&spk_response.raw_spk)
+            .expect("Failed to parse generated SPK as SpiceKernel");
     }
 }
