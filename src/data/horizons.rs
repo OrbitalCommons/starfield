@@ -108,6 +108,8 @@ pub enum EphemType {
     Elements,
     /// SPK: binary SPICE kernel file (small bodies only)
     Spk,
+    /// Approach: close-approach tables for small bodies
+    Approach,
 }
 
 impl EphemType {
@@ -117,6 +119,25 @@ impl EphemType {
             EphemType::Vectors => "VECTORS",
             EphemType::Elements => "ELEMENTS",
             EphemType::Spk => "SPK",
+            EphemType::Approach => "APPROACH",
+        }
+    }
+}
+
+/// Close-approach table detail level
+#[derive(Debug, Clone, Copy)]
+pub enum CaTableType {
+    /// Standard columns: Date, Body, CA Dist, MinDist, MaxDist, Vrel, TCA3Sg, Nsigs, P_i/p
+    Standard,
+    /// Extended columns: adds JDTDB, B-plane parameters (SMaA, SMiA, B.T, B.R, Theta)
+    Extended,
+}
+
+impl CaTableType {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CaTableType::Standard => "STANDARD",
+            CaTableType::Extended => "EXTENDED",
         }
     }
 }
@@ -283,6 +304,15 @@ pub struct EphemerisRequest {
     pub csv_format: bool,
     /// Extra precision in RA/Dec
     pub extra_prec: bool,
+    /// Close-approach table type (APPROACH only)
+    pub ca_table_type: Option<CaTableType>,
+    /// Max 3-sigma time-of-CA uncertainty in minutes (APPROACH only)
+    pub tca3sg_limit: Option<u32>,
+    /// Small-body close-approach distance limit in AU (APPROACH only)
+    pub calim_sb: Option<f64>,
+    /// Per-planet close-approach distance limits in AU (APPROACH only).
+    /// Order: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Moon.
+    pub calim_pl: Option<[f64; 10]>,
 }
 
 impl EphemerisRequest {
@@ -302,6 +332,10 @@ impl EphemerisRequest {
             ang_format: None,
             csv_format: true,
             extra_prec: false,
+            ca_table_type: None,
+            tca3sg_limit: None,
+            calim_sb: None,
+            calim_pl: None,
         }
     }
 
@@ -321,6 +355,10 @@ impl EphemerisRequest {
             ang_format: Some("DEG".to_string()),
             csv_format: true,
             extra_prec: true,
+            ca_table_type: None,
+            tca3sg_limit: None,
+            calim_sb: None,
+            calim_pl: None,
         }
     }
 
@@ -340,6 +378,36 @@ impl EphemerisRequest {
             ang_format: None,
             csv_format: true,
             extra_prec: false,
+            ca_table_type: None,
+            tca3sg_limit: None,
+            calim_sb: None,
+            calim_pl: None,
+        }
+    }
+
+    /// Create a request for close-approach tables
+    ///
+    /// Generates tables of close approaches between a small body and
+    /// major solar system bodies (planets and the 16 largest asteroids).
+    pub fn approach(command: Command, center: Center, time_spec: TimeSpec) -> Self {
+        Self {
+            command,
+            ephem_type: EphemType::Approach,
+            center,
+            time_spec,
+            obj_data: false,
+            vec_table: None,
+            out_units: None,
+            vec_corr: None,
+            ref_plane: None,
+            quantities: None,
+            ang_format: None,
+            csv_format: false,
+            extra_prec: false,
+            ca_table_type: Some(CaTableType::Standard),
+            tca3sg_limit: None,
+            calim_sb: None,
+            calim_pl: None,
         }
     }
 
@@ -366,6 +434,10 @@ impl EphemerisRequest {
             ang_format: None,
             csv_format: false,
             extra_prec: false,
+            ca_table_type: None,
+            tca3sg_limit: None,
+            calim_sb: None,
+            calim_pl: None,
         }
     }
 
@@ -472,6 +544,23 @@ impl EphemerisRequest {
 
         if self.extra_prec {
             params.push(("EXTRA_PREC".into(), "YES".into()));
+        }
+
+        if let Some(ca_type) = &self.ca_table_type {
+            params.push(("CA_TABLE_TYPE".into(), format!("'{}'", ca_type.as_str())));
+        }
+
+        if let Some(limit) = self.tca3sg_limit {
+            params.push(("TCA3SG_LIMIT".into(), format!("'{}'", limit)));
+        }
+
+        if let Some(sb) = self.calim_sb {
+            params.push(("CALIM_SB".into(), format!("'{}'", sb)));
+        }
+
+        if let Some(pl) = &self.calim_pl {
+            let values: Vec<String> = pl.iter().map(|v| format!("{}", v)).collect();
+            params.push(("CALIM_PL".into(), format!("'{}'", values.join(","))));
         }
 
         params
@@ -1081,6 +1170,60 @@ mod tests {
             result.contains("$$EOE"),
             "Response should contain ephemeris end marker"
         );
+    }
+
+    #[test]
+    fn test_approach_request_params() {
+        let req = EphemerisRequest::approach(
+            Command::Asteroid(99942),
+            Center::BodyCenter(10),
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2035-01-01".into(),
+                step: "1 d".into(),
+            },
+        );
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("COMMAND").unwrap(), "'99942;'");
+        assert_eq!(map.get("EPHEM_TYPE").unwrap(), "APPROACH");
+        assert_eq!(map.get("CA_TABLE_TYPE").unwrap(), "'STANDARD'");
+        assert!(!map.contains_key("CSV_FORMAT"));
+    }
+
+    #[test]
+    fn test_approach_request_extended_with_limits() {
+        let mut req = EphemerisRequest::approach(
+            Command::Asteroid(99942),
+            Center::BodyCenter(10),
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2050-01-01".into(),
+                step: "1 d".into(),
+            },
+        );
+        req.ca_table_type = Some(CaTableType::Extended);
+        req.tca3sg_limit = Some(14400);
+        req.calim_sb = Some(0.2);
+        req.calim_pl = Some([0.1, 0.1, 0.1, 0.1, 1.0, 1.0, 1.0, 1.0, 0.1, 0.003]);
+
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+
+        assert_eq!(map.get("CA_TABLE_TYPE").unwrap(), "'EXTENDED'");
+        assert_eq!(map.get("TCA3SG_LIMIT").unwrap(), "'14400'");
+        assert_eq!(map.get("CALIM_SB").unwrap(), "'0.2'");
+        assert_eq!(
+            map.get("CALIM_PL").unwrap(),
+            "'0.1,0.1,0.1,0.1,1,1,1,1,0.1,0.003'"
+        );
+    }
+
+    #[test]
+    fn test_ca_table_type_as_str() {
+        assert_eq!(CaTableType::Standard.as_str(), "STANDARD");
+        assert_eq!(CaTableType::Extended.as_str(), "EXTENDED");
     }
 
     #[test]
