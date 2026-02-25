@@ -16,8 +16,16 @@ use std::path::Path;
 /// Base URL for the HORIZONS ephemeris API
 const HORIZONS_API_URL: &str = "https://ssd.jpl.nasa.gov/api/horizons.api";
 
+/// Base URL for the HORIZONS File API (POST endpoint for large requests)
+const HORIZONS_FILE_API_URL: &str = "https://ssd.jpl.nasa.gov/api/horizons_file.api";
+
 /// Base URL for the HORIZONS lookup API
 const HORIZONS_LOOKUP_URL: &str = "https://ssd.jpl.nasa.gov/api/horizons_lookup.api";
+
+/// URL length threshold above which `query_auto` switches from GET to POST.
+/// Standard HTTP servers and proxies typically support URLs up to ~2000 chars,
+/// so we use a conservative threshold to leave room for encoding overhead.
+const AUTO_POST_URL_THRESHOLD: usize = 1500;
 
 /// Target body specification for the COMMAND parameter.
 ///
@@ -361,11 +369,44 @@ impl EphemerisRequest {
         }
     }
 
-    /// Build query parameters for the HTTP request
-    fn to_query_params(&self) -> Vec<(String, String)> {
+    /// Build a HORIZONS input file string for the File API (POST endpoint).
+    ///
+    /// The input file uses key=value pairs between `!$$SOF` and `!$$EOF` markers.
+    /// Unlike the GET query parameters, the `format` key is not included here
+    /// because it is sent as a separate form field in the POST request.
+    pub fn to_input_file(&self) -> String {
+        let params = self.to_horizons_params();
+        let mut lines = Vec::with_capacity(params.len() + 2);
+        lines.push("!$$SOF".to_string());
+        for (key, value) in &params {
+            lines.push(format!("{}={}", key, value));
+        }
+        lines.push("!$$EOF".to_string());
+        lines.join("\n")
+    }
+
+    /// Estimate the URL length that a GET request would produce.
+    ///
+    /// This is used by `query_auto` to decide whether to use GET or POST.
+    pub fn estimated_url_length(&self) -> usize {
+        let params = self.to_query_params();
+        // Base URL + '?'
+        let mut len = HORIZONS_API_URL.len() + 1;
+        for (i, (key, value)) in params.iter().enumerate() {
+            if i > 0 {
+                len += 1; // '&'
+            }
+            len += key.len() + 1 + value.len(); // key=value
+        }
+        len
+    }
+
+    /// Build the HORIZONS parameter key-value pairs (without the `format` key).
+    ///
+    /// Shared between `to_query_params` (GET) and `to_input_file` (POST).
+    fn to_horizons_params(&self) -> Vec<(String, String)> {
         let mut params: Vec<(String, String)> = Vec::new();
 
-        params.push(("format".into(), "json".into()));
         params.push((
             "COMMAND".into(),
             format!("'{}'", self.command.to_query_value()),
@@ -433,6 +474,15 @@ impl EphemerisRequest {
             params.push(("EXTRA_PREC".into(), "YES".into()));
         }
 
+        params
+    }
+
+    /// Build query parameters for the HTTP GET request.
+    ///
+    /// Prepends `format=json` to the shared HORIZONS parameter list.
+    fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = vec![("format".into(), "json".into())];
+        params.extend(self.to_horizons_params());
         params
     }
 }
@@ -584,6 +634,67 @@ impl HorizonsClient {
         }
 
         Ok(body)
+    }
+
+    /// Execute an ephemeris query via the File API (POST endpoint).
+    ///
+    /// This sends the request parameters as a HORIZONS input file in the body
+    /// of a POST request. Use this for large requests (e.g., long TLIST values)
+    /// that would exceed URL length limits on the standard GET endpoint.
+    pub fn query_file(&self, request: &EphemerisRequest) -> Result<HorizonsResponse> {
+        let input_file = request.to_input_file();
+        let form = reqwest::blocking::multipart::Form::new()
+            .text("input", input_file)
+            .text("format", "json");
+
+        let response = self
+            .client
+            .post(HORIZONS_FILE_API_URL)
+            .multipart(form)
+            .send()
+            .map_err(|e| {
+                StarfieldError::DataError(format!("HORIZONS file request failed: {}", e))
+            })?;
+
+        if !response.status().is_success() {
+            return Err(StarfieldError::DataError(format!(
+                "HORIZONS File API returned HTTP {}",
+                response.status()
+            )));
+        }
+
+        let body: HorizonsResponse = response.json().map_err(|e| {
+            StarfieldError::DataError(format!("Failed to parse HORIZONS file response: {}", e))
+        })?;
+
+        if let Some(ref result) = body.result {
+            if result.contains("Cannot interpret target body")
+                || result.contains("No ephemeris for target")
+                || result.contains("Ambiguous target name")
+                || result.contains("No matches found")
+            {
+                return Err(StarfieldError::DataError(format!(
+                    "HORIZONS error: {}",
+                    extract_error_message(result)
+                )));
+            }
+        }
+
+        Ok(body)
+    }
+
+    /// Automatically choose GET or POST based on estimated URL length.
+    ///
+    /// For small requests that fit comfortably in a URL, this uses the standard
+    /// GET endpoint. For large requests (e.g., with many Julian Day entries in
+    /// TLIST) that would produce URLs longer than ~1500 characters, this falls
+    /// back to the File API POST endpoint.
+    pub fn query_auto(&self, request: &EphemerisRequest) -> Result<HorizonsResponse> {
+        if request.estimated_url_length() > AUTO_POST_URL_THRESHOLD {
+            self.query_file(request)
+        } else {
+            self.query(request)
+        }
     }
 
     /// Look up an object by name, designation, or SPK-ID
@@ -1030,6 +1141,130 @@ mod tests {
     }
 
     #[test]
+    fn test_input_file_vectors_range() {
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let input = req.to_input_file();
+
+        assert!(input.starts_with("!$$SOF"));
+        assert!(input.ends_with("!$$EOF"));
+        assert!(input.contains("COMMAND='499'"));
+        assert!(input.contains("MAKE_EPHEM=YES"));
+        assert!(input.contains("EPHEM_TYPE=VECTORS"));
+        assert!(input.contains("CENTER='500@0'"));
+        assert!(input.contains("START_TIME='2024-01-01'"));
+        assert!(input.contains("STOP_TIME='2024-01-02'"));
+        assert!(input.contains("STEP_SIZE='1 d'"));
+        assert!(input.contains("CSV_FORMAT=YES"));
+        assert!(input.contains("OBJ_DATA=NO"));
+        assert!(input.contains("OUT_UNITS='AU-D'"));
+        assert!(input.contains("VEC_TABLE='3'"));
+        assert!(input.contains("VEC_CORR='NONE'"));
+        assert!(input.contains("REF_PLANE='ECLIPTIC'"));
+        // The input file should NOT contain format=json (that goes as a form field)
+        assert!(!input.contains("format=json"));
+    }
+
+    #[test]
+    fn test_input_file_tlist() {
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::JulianDayList(vec![2451545.0, 2451546.0, 2451547.0]),
+        );
+        let input = req.to_input_file();
+
+        assert!(input.starts_with("!$$SOF"));
+        assert!(input.ends_with("!$$EOF"));
+        assert!(input.contains("TLIST=2451545,2451546,2451547"));
+        assert!(!input.contains("START_TIME"));
+    }
+
+    #[test]
+    fn test_input_file_observer() {
+        let req = EphemerisRequest::observer(
+            Command::MajorBody(499),
+            Center::Geocentric,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let input = req.to_input_file();
+
+        assert!(input.contains("EPHEM_TYPE=OBSERVER"));
+        assert!(input.contains("QUANTITIES='1,9,20,23'"));
+        assert!(input.contains("ANG_FORMAT='DEG'"));
+        assert!(input.contains("EXTRA_PREC=YES"));
+    }
+
+    #[test]
+    fn test_query_auto_picks_get_for_small_request() {
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let url_len = req.estimated_url_length();
+        assert!(
+            url_len < AUTO_POST_URL_THRESHOLD,
+            "Small request URL length {} should be below threshold {}",
+            url_len,
+            AUTO_POST_URL_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn test_query_auto_picks_post_for_large_request() {
+        // Create a request with many Julian Days to push URL length past the threshold
+        let jds: Vec<f64> = (0..200).map(|i| 2451545.0 + i as f64).collect();
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::JulianDayList(jds),
+        );
+        let url_len = req.estimated_url_length();
+        assert!(
+            url_len > AUTO_POST_URL_THRESHOLD,
+            "Large request URL length {} should exceed threshold {}",
+            url_len,
+            AUTO_POST_URL_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn test_query_params_still_include_format_json() {
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let params = req.to_query_params();
+        let map: HashMap<String, String> = params.into_iter().collect();
+        assert_eq!(
+            map.get("format").unwrap(),
+            "json",
+            "GET params must include format=json"
+        );
+    }
+
+    #[test]
     #[ignore]
     fn test_generate_spk_asteroid_433_eros() {
         let client = HorizonsClient::new().expect("Failed to create HORIZONS client");
@@ -1053,5 +1288,30 @@ mod tests {
         // Verify we can parse it as a SpiceKernel
         let _kernel = SpiceKernel::from_bytes(&spk_response.raw_spk)
             .expect("Failed to parse generated SPK as SpiceKernel");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_file_api_post_mars_vectors() {
+        let client = HorizonsClient::new().expect("Failed to create client");
+        let req = EphemerisRequest::vectors(
+            Command::MajorBody(499),
+            Center::SolarSystemBarycenter,
+            TimeSpec::Range {
+                start: "2024-01-01".into(),
+                stop: "2024-01-02".into(),
+                step: "1 d".into(),
+            },
+        );
+        let response = client.query_file(&req).expect("File API query failed");
+        assert!(
+            response.result.is_some(),
+            "Expected result text in File API response"
+        );
+        let result = response.result.unwrap();
+        assert!(
+            result.contains("$$SOE"),
+            "Expected ephemeris data block in result"
+        );
     }
 }
