@@ -605,6 +605,135 @@ impl RadarParams {
     }
 }
 
+/// Observer location for the SB Identification API
+#[derive(Debug, Clone)]
+pub enum SbIdentObserver {
+    /// MPC observatory code (e.g., "F51" for Pan-STARRS)
+    MpcCode(String),
+    /// Geodetic coordinates (lat degrees north-positive, lon degrees east-positive, alt km)
+    Geodetic { lat: f64, lon: f64, alt: f64 },
+    /// Geocentric state vector: position (km) and optional velocity (km/s), J2000 equatorial
+    Geocentric(String),
+    /// Heliocentric state vector: position (AU) and optional velocity (AU/d), J2000 equatorial
+    Heliocentric(String),
+}
+
+/// Field of view specification for the SB Identification API
+#[derive(Debug, Clone)]
+pub enum SbIdentFov {
+    /// FOV defined by RA/Dec edge limits (sexagesimal strings)
+    Edges {
+        /// RA edges: comma-separated `hh-mm-ss[.ss]` values
+        ra_lim: String,
+        /// Dec edges: comma-separated `dd-mm-ss[.ss]` values
+        dec_lim: String,
+    },
+    /// FOV defined by center point and half-widths
+    Center {
+        /// Center RA: `hh-mm-ss[.ss]`
+        ra_center: String,
+        /// Center Dec: `dd-mm-ss[.ss]`
+        dec_center: String,
+        /// Half-width in RA (degrees, default 0.5)
+        ra_hwidth: Option<f64>,
+        /// Half-width in Dec (degrees, default 0.5)
+        dec_hwidth: Option<f64>,
+    },
+}
+
+/// Parameters for the SB Identification API query
+#[derive(Debug, Clone)]
+pub struct SbIdentParams {
+    /// Observer location
+    pub observer: SbIdentObserver,
+    /// Field of view specification
+    pub fov: SbIdentFov,
+    /// Observation time: `YYYY-MM-DD[_hh:mm:ss]` or Julian Date
+    pub obs_time: String,
+    /// Visual magnitude limit threshold
+    pub vmag_lim: Option<f64>,
+    /// Enable second pass with high-fidelity numerical integration
+    pub two_pass: bool,
+    /// Require magnitude parameters for returned objects
+    pub mag_required: Option<bool>,
+    /// Object type filter: `a` (asteroids only)
+    pub sb_kind: Option<String>,
+    /// Group filter: e.g., `neo`
+    pub sb_group: Option<String>,
+    /// Include osculating orbital elements in the response
+    pub req_elem: bool,
+}
+
+impl SbIdentParams {
+    /// Convert parameters to query string key-value pairs for the HTTP request
+    pub fn to_query_params(&self) -> Vec<(String, String)> {
+        let mut params = Vec::new();
+
+        match &self.observer {
+            SbIdentObserver::MpcCode(code) => {
+                params.push(("mpc-code".into(), code.clone()));
+            }
+            SbIdentObserver::Geodetic { lat, lon, alt } => {
+                params.push(("lat".into(), lat.to_string()));
+                params.push(("lon".into(), lon.to_string()));
+                params.push(("alt".into(), alt.to_string()));
+            }
+            SbIdentObserver::Geocentric(state) => {
+                params.push(("xobs".into(), state.clone()));
+            }
+            SbIdentObserver::Heliocentric(state) => {
+                params.push(("xobs-hel".into(), state.clone()));
+            }
+        }
+
+        match &self.fov {
+            SbIdentFov::Edges { ra_lim, dec_lim } => {
+                params.push(("fov-ra-lim".into(), ra_lim.clone()));
+                params.push(("fov-dec-lim".into(), dec_lim.clone()));
+            }
+            SbIdentFov::Center {
+                ra_center,
+                dec_center,
+                ra_hwidth,
+                dec_hwidth,
+            } => {
+                params.push(("fov-ra-center".into(), ra_center.clone()));
+                params.push(("fov-dec-center".into(), dec_center.clone()));
+                if let Some(w) = ra_hwidth {
+                    params.push(("fov-ra-hwidth".into(), w.to_string()));
+                }
+                if let Some(w) = dec_hwidth {
+                    params.push(("fov-dec-hwidth".into(), w.to_string()));
+                }
+            }
+        }
+
+        params.push(("obs-time".into(), self.obs_time.clone()));
+
+        if let Some(v) = self.vmag_lim {
+            params.push(("vmag-lim".into(), v.to_string()));
+        }
+        if self.two_pass {
+            params.push(("two-pass".into(), "true".into()));
+            params.push(("suppress-first-pass".into(), "false".into()));
+        }
+        if let Some(v) = self.mag_required {
+            params.push(("mag-required".into(), v.to_string()));
+        }
+        if let Some(ref v) = self.sb_kind {
+            params.push(("sb-kind".into(), v.clone()));
+        }
+        if let Some(ref v) = self.sb_group {
+            params.push(("sb-group".into(), v.clone()));
+        }
+        if self.req_elem {
+            params.push(("req-elem".into(), "true".into()));
+        }
+
+        params
+    }
+}
+
 /// A radar astrometry measurement record for a small body
 #[derive(Debug, Clone)]
 pub struct RadarRecord {
@@ -653,6 +782,92 @@ pub struct RadarResponse {
     pub records: Vec<RadarRecord>,
 }
 
+/// A single identified small body entry from the SB Identification API
+#[derive(Debug, Clone)]
+pub struct SbIdentEntry {
+    /// Object name/designation
+    pub name: String,
+    /// Astrometric right ascension (sexagesimal or degrees)
+    pub ra: Option<String>,
+    /// Astrometric declination (sexagesimal or degrees)
+    pub dec: Option<String>,
+    /// RA offset from FOV center (arcsec)
+    pub ra_offset: Option<f64>,
+    /// Dec offset from FOV center (arcsec)
+    pub dec_offset: Option<f64>,
+    /// Total offset from FOV center (arcsec)
+    pub total_offset: Option<f64>,
+    /// Visual magnitude
+    pub vmag: Option<f64>,
+    /// RA rate of motion (deg/s)
+    pub ra_rate: Option<f64>,
+    /// Dec rate of motion (deg/s)
+    pub dec_rate: Option<f64>,
+    /// RA error estimate (arcsec, first-pass only)
+    pub ra_err: Option<f64>,
+    /// Dec error estimate (arcsec, first-pass only)
+    pub dec_err: Option<f64>,
+}
+
+/// Orbital elements for an identified small body (when `req_elem` is true)
+#[derive(Debug, Clone)]
+pub struct SbIdentOrbitalElements {
+    /// Object name/designation
+    pub name: String,
+    /// Absolute magnitude H
+    pub h: Option<f64>,
+    /// Magnitude slope parameter G
+    pub g: Option<f64>,
+    /// Eccentricity
+    pub e: Option<f64>,
+    /// Perihelion distance (AU)
+    pub q: Option<f64>,
+    /// Time of perihelion passage (JD)
+    pub tp: Option<f64>,
+    /// Longitude of ascending node (degrees)
+    pub om: Option<f64>,
+    /// Argument of perihelion (degrees)
+    pub w: Option<f64>,
+    /// Inclination (degrees)
+    pub i: Option<f64>,
+    /// Epoch (JD)
+    pub epoch: Option<f64>,
+}
+
+/// Observer information returned in the SB Identification response
+#[derive(Debug, Clone)]
+pub struct SbIdentObserverInfo {
+    /// Observation date/time
+    pub obs_date: Option<String>,
+    /// Observer location description
+    pub location: Option<String>,
+    /// FOV center coordinate
+    pub fov_center: Option<String>,
+    /// FOV offset description
+    pub fov_offset: Option<String>,
+    /// Reference frame (typically "J2000")
+    pub frame: Option<String>,
+}
+
+/// Response from the SB Identification API
+#[derive(Debug, Clone)]
+pub struct SbIdentResponse {
+    /// Observer information
+    pub observer: SbIdentObserverInfo,
+    /// Number of objects found in first pass
+    pub n_first_pass: u32,
+    /// Number of objects found in second pass (when two-pass enabled)
+    pub n_second_pass: u32,
+    /// Identified objects from first-pass search
+    pub data_first_pass: Vec<SbIdentEntry>,
+    /// Identified objects from second-pass search (when two-pass enabled)
+    pub data_second_pass: Vec<SbIdentEntry>,
+    /// Orbital elements from first-pass (when req_elem is true)
+    pub elem_first_pass: Vec<SbIdentOrbitalElements>,
+    /// Orbital elements from second-pass (when req_elem is true)
+    pub elem_second_pass: Vec<SbIdentOrbitalElements>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,5 +907,71 @@ mod tests {
         for class in &classes {
             assert_eq!(&OrbitClass::from_code(class.as_code()), class);
         }
+    }
+
+    #[test]
+    fn test_sb_ident_params_mpc_code() {
+        let params = SbIdentParams {
+            observer: SbIdentObserver::MpcCode("F51".into()),
+            fov: SbIdentFov::Center {
+                ra_center: "05-00-00".into(),
+                dec_center: "20-00-00".into(),
+                ra_hwidth: Some(1.0),
+                dec_hwidth: Some(1.0),
+            },
+            obs_time: "2024-01-01".into(),
+            vmag_lim: Some(20.0),
+            two_pass: false,
+            mag_required: None,
+            sb_kind: None,
+            sb_group: None,
+            req_elem: false,
+        };
+        let query = params.to_query_params();
+        let map: std::collections::HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("mpc-code").unwrap(), "F51");
+        assert_eq!(map.get("fov-ra-center").unwrap(), "05-00-00");
+        assert_eq!(map.get("fov-dec-center").unwrap(), "20-00-00");
+        assert_eq!(map.get("fov-ra-hwidth").unwrap(), "1");
+        assert_eq!(map.get("obs-time").unwrap(), "2024-01-01");
+        assert_eq!(map.get("vmag-lim").unwrap(), "20");
+        assert!(map.get("two-pass").is_none());
+    }
+
+    #[test]
+    fn test_sb_ident_params_geodetic_edges() {
+        let params = SbIdentParams {
+            observer: SbIdentObserver::Geodetic {
+                lat: 34.05,
+                lon: -118.25,
+                alt: 0.0,
+            },
+            fov: SbIdentFov::Edges {
+                ra_lim: "05-00-00,06-00-00".into(),
+                dec_lim: "19-00-00,21-00-00".into(),
+            },
+            obs_time: "2024-06-15_12:00:00".into(),
+            vmag_lim: None,
+            two_pass: true,
+            mag_required: Some(true),
+            sb_kind: Some("a".into()),
+            sb_group: Some("neo".into()),
+            req_elem: true,
+        };
+        let query = params.to_query_params();
+        let map: std::collections::HashMap<String, String> = query.into_iter().collect();
+
+        assert_eq!(map.get("lat").unwrap(), "34.05");
+        assert_eq!(map.get("lon").unwrap(), "-118.25");
+        assert_eq!(map.get("alt").unwrap(), "0");
+        assert_eq!(map.get("fov-ra-lim").unwrap(), "05-00-00,06-00-00");
+        assert_eq!(map.get("fov-dec-lim").unwrap(), "19-00-00,21-00-00");
+        assert_eq!(map.get("two-pass").unwrap(), "true");
+        assert_eq!(map.get("suppress-first-pass").unwrap(), "false");
+        assert_eq!(map.get("mag-required").unwrap(), "true");
+        assert_eq!(map.get("sb-kind").unwrap(), "a");
+        assert_eq!(map.get("sb-group").unwrap(), "neo");
+        assert_eq!(map.get("req-elem").unwrap(), "true");
     }
 }

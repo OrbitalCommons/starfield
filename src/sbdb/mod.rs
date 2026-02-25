@@ -11,6 +11,7 @@
 //! - **Scout** — NEOCP unconfirmed object analysis
 //! - **Mission Design** — trajectory parameters for small-body missions
 //! - **SB Radar** — radar astrometry measurements
+//! - **SB Identification** — identify small bodies within a field of view
 //!
 //! No API key or authentication is required.
 //!
@@ -49,7 +50,8 @@ pub use types::{
     CloseApproachRecord, FireballRecord, MissionAccessibleEntry, MissionAccessibleParams,
     MissionAccessibleResponse, MissionDesignCriterion, MissionFlybyEntry, MissionFlybyParams,
     MissionFlybyResponse, MissionQueryObject, MissionQueryResponse, OrbitClass, PhysicalParams,
-    RadarParams, RadarRecord, RadarResponse, ScoutObjectDetail, ScoutObjectResponse,
-    ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry, Signature,
-    SmallBodyObject, SmallBodyOrbit,
+    RadarParams, RadarRecord, RadarResponse, SbIdentEntry, SbIdentFov, SbIdentObserver,
+    SbIdentObserverInfo, SbIdentOrbitalElements, SbIdentParams, SbIdentResponse, ScoutObjectDetail,
+    ScoutObjectResponse, ScoutOrbitData, ScoutSummaryEntry, ScoutSummaryResponse, SentryEntry,
+    Signature, SmallBodyObject, SmallBodyOrbit,
 };
