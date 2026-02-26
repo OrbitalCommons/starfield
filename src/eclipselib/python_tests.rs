@@ -8,6 +8,7 @@
 mod tests {
     use crate::eclipselib::{lunar_eclipses, LunarEclipseType};
     use crate::jplephem::kernel::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::pybridge::bridge::PyRustBridge;
     use crate::pybridge::helpers::PythonResult;
     use crate::time::Timescale;
@@ -21,7 +22,7 @@ mod tests {
     }
 
     fn test_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("de421.bsp required")
+        SpiceKernel::open("test_data/de421.bsp").expect("de421.bsp required")
     }
 
     /// Compare lunar eclipse count and types for 2015 against Skyfield

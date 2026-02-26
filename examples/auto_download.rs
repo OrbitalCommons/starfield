@@ -5,6 +5,7 @@
 //!
 //! Run with: cargo run --example auto_download
 
+use starfield::jplephem_ext::SpiceKernelExt;
 use starfield::Loader;
 
 fn main() -> starfield::Result<()> {

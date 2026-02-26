@@ -31,6 +31,7 @@ use crate::coordinates::cartesian::Cartesian3;
 use crate::framelib::{ECLIPJ2000_MATRIX, ECLIPJ2000_MATRIX_INV};
 use crate::jplephem::errors::Result;
 use crate::jplephem::kernel::SpiceKernel;
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::time::Time;
 
 /// A heliocentric ecliptic J2000 state vector (position + velocity).
@@ -168,11 +169,12 @@ impl std::fmt::Display for EclipticStateVector {
 mod tests {
     use super::*;
     use crate::jplephem::kernel::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::time::Timescale;
     use approx::assert_relative_eq;
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
+        SpiceKernel::open("test_data/de421.bsp").expect("Failed to open DE421")
     }
 
     fn j2000_time() -> Time {

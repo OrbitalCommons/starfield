@@ -3,11 +3,12 @@
 #[cfg(test)]
 mod tests {
     use crate::jplephem::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::pybridge::{PyRustBridge, PythonResult};
     use crate::time::Timescale;
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").unwrap()
+        SpiceKernel::open("test_data/de421.bsp").unwrap()
     }
 
     /// Ecliptic longitude/latitude of Mars matches Skyfield's frame_latlon

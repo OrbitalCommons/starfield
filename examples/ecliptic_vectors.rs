@@ -12,7 +12,7 @@ use starfield::Timescale;
 
 fn main() -> starfield::Result<()> {
     let ts = Timescale::default();
-    let bsp_path = "src/jplephem/test_data/de421.bsp";
+    let bsp_path = "test_data/de421.bsp";
 
     println!("Heliocentric Ecliptic J2000 State Vectors");
     println!("=========================================\n");

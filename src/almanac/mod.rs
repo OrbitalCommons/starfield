@@ -29,6 +29,7 @@ use std::f64::consts::PI;
 
 use crate::constants::TAU;
 use crate::jplephem::kernel::SpiceKernel;
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::time::Timescale;
 
 /// Sun's apparent angular radius plus standard refraction (50 arcminutes)
@@ -407,11 +408,12 @@ pub fn oppositions_conjunctions<'a>(
 mod tests {
     use super::*;
     use crate::jplephem::kernel::SpiceKernel;
+    use crate::jplephem_ext::SpiceKernelExt;
     use crate::searchlib::{find_discrete, DEFAULT_NUM, EPSILON_DISCRETE};
     use crate::time::Timescale;
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
+        SpiceKernel::open("test_data/de421.bsp").expect("Failed to open DE421")
     }
 
     // --- Sun ecliptic longitude ---

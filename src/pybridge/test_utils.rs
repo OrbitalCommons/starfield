@@ -7,7 +7,7 @@ use crate::jplephem::kernel::SpiceKernel;
 use crate::pybridge::helpers::PythonResult;
 
 /// Path to DE421 test data BSP file
-pub const DE421_PATH: &str = "src/jplephem/test_data/de421.bsp";
+pub const DE421_PATH: &str = "test_data/de421.bsp";
 
 /// Open the DE421 kernel for testing
 pub fn de421_kernel() -> SpiceKernel {

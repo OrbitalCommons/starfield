@@ -371,6 +371,7 @@ fn to_spherical(xyz: &Vector3<f64>) -> (f64, f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jplephem_ext::SpiceKernelExt;
     use approx::assert_relative_eq;
 
     #[test]
@@ -471,7 +472,7 @@ mod tests {
     // --- DE421 integration tests ---
 
     fn de421_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp").expect("Failed to open DE421")
+        SpiceKernel::open("test_data/de421.bsp").expect("Failed to open DE421")
     }
 
     fn j2000_time() -> crate::time::Time {

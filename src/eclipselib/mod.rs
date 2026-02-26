@@ -13,6 +13,7 @@ use std::cell::RefCell;
 
 use crate::constants::EARTH_RADIUS;
 use crate::jplephem::kernel::SpiceKernel;
+use crate::jplephem_ext::SpiceKernelExt;
 use crate::searchlib::find_maxima;
 use crate::time::Timescale;
 
@@ -311,10 +312,10 @@ fn angle_between_vec(a: &[f64; 3], b: &[f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jplephem_ext::SpiceKernelExt;
 
     fn test_kernel() -> SpiceKernel {
-        SpiceKernel::open("src/jplephem/test_data/de421.bsp")
-            .expect("de421.bsp required for eclipse tests")
+        SpiceKernel::open("test_data/de421.bsp").expect("de421.bsp required for eclipse tests")
     }
 
     #[test]
