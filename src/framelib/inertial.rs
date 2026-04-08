@@ -243,11 +243,11 @@ mod tests {
     fn test_equatorial_to_cartesian_roundtrip() {
         let mut rng = StdRng::seed_from_u64(424242); // Use a fixed seed for reproducibility
         for i in 0..100 {
-            let original_ra = rng.gen::<f64>() * 2.0 * PI;
+            let original_ra = rng.random::<f64>() * 2.0 * PI;
             // Ensure dec is within -PI/2 to PI/2, avoiding poles where atan2 might be less stable
             // or where small cartesian errors can lead to large angle errors.
             // Let's restrict it slightly away from exact poles for more robust testing of the general case.
-            let original_dec = (rng.gen::<f64>() * PI - PI / 2.0) * 0.99;
+            let original_dec = (rng.random::<f64>() * PI - PI / 2.0) * 0.99;
 
             let equatorial_original = Equatorial {
                 ra: original_ra,
@@ -359,9 +359,9 @@ mod tests {
     fn test_ecliptic_to_cartesian_roundtrip() {
         let mut rng = StdRng::seed_from_u64(424243); // Use a fixed seed for reproducibility
         for i in 0..100 {
-            let original_lon = rng.gen::<f64>() * 2.0 * PI;
+            let original_lon = rng.random::<f64>() * 2.0 * PI;
             // Ensure lat is within -PI/2 to PI/2, avoiding poles.
-            let original_lat = (rng.gen::<f64>() * PI - PI / 2.0) * 0.99;
+            let original_lat = (rng.random::<f64>() * PI - PI / 2.0) * 0.99;
 
             let ecliptic_original = Ecliptic {
                 lon: original_lon,
@@ -473,8 +473,8 @@ mod tests {
     fn test_galactic_to_cartesian_roundtrip() {
         let mut rng = StdRng::seed_from_u64(424244); // Use a fixed seed for reproducibility
         for i in 0..100 {
-            let original_lon = rng.gen::<f64>() * 2.0 * PI;
-            let original_lat = (rng.gen::<f64>() * PI - PI / 2.0) * 0.99;
+            let original_lon = rng.random::<f64>() * 2.0 * PI;
+            let original_lat = (rng.random::<f64>() * PI - PI / 2.0) * 0.99;
 
             let galactic_original = Galactic {
                 lon: original_lon,

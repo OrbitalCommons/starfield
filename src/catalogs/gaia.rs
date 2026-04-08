@@ -506,19 +506,19 @@ impl GaiaCatalog {
             let source_id = 5900000000000000000u64.wrapping_add(i);
             let solution_id = 1635721458409799680u64.wrapping_add(i + 5);
 
-            let ra = rng.gen_range(0.0..360.0);
-            let dec = rng.gen_range(-90.0..90.0);
+            let ra = rng.random_range(0.0..360.0);
+            let dec = rng.random_range(-90.0..90.0);
 
             // Create a magnitude distribution weighted toward fainter stars
-            let g_mag = (rng.gen_range(0.0..20.0_f64).powf(1.5) - 0.75).max(0.0);
+            let g_mag = (rng.random_range(0.0..20.0_f64).powf(1.5) - 0.75).max(0.0);
 
             // Galactic coordinates (approximation)
-            let l = rng.gen_range(0.0..360.0);
-            let b = rng.gen_range(-90.0..90.0);
+            let l = rng.random_range(0.0..360.0);
+            let b = rng.random_range(-90.0..90.0);
 
             // Ecliptic coordinates (approximation)
-            let ecl_lon = rng.gen_range(0.0..360.0);
-            let ecl_lat = rng.gen_range(-90.0..90.0);
+            let ecl_lon = rng.random_range(0.0..360.0);
+            let ecl_lat = rng.random_range(-90.0..90.0);
 
             // Create a realistic flux based on magnitude
             let g_flux = 10.0_f64.powf(10.0 - 0.4 * g_mag);
@@ -528,31 +528,31 @@ impl GaiaCatalog {
                 solution_id,
                 ra,
                 dec,
-                ra_error: rng.gen_range(0.1..1.0),
-                dec_error: rng.gen_range(0.1..1.0),
-                parallax: if rng.gen_bool(0.8) {
-                    Some(rng.gen_range(0.1..100.0))
+                ra_error: rng.random_range(0.1..1.0),
+                dec_error: rng.random_range(0.1..1.0),
+                parallax: if rng.random_bool(0.8) {
+                    Some(rng.random_range(0.1..100.0))
                 } else {
                     None
                 },
-                parallax_error: if rng.gen_bool(0.7) {
-                    Some(rng.gen_range(0.1..5.0))
+                parallax_error: if rng.random_bool(0.7) {
+                    Some(rng.random_range(0.1..5.0))
                 } else {
                     None
                 },
-                pmra: if rng.gen_bool(0.7) {
-                    Some(rng.gen_range(-100.0..100.0))
+                pmra: if rng.random_bool(0.7) {
+                    Some(rng.random_range(-100.0..100.0))
                 } else {
                     None
                 },
-                pmdec: if rng.gen_bool(0.7) {
-                    Some(rng.gen_range(-100.0..100.0))
+                pmdec: if rng.random_bool(0.7) {
+                    Some(rng.random_range(-100.0..100.0))
                 } else {
                     None
                 },
                 phot_g_mean_mag: g_mag,
                 phot_g_mean_flux: g_flux,
-                phot_variable_flag: if rng.gen_bool(0.05) {
+                phot_variable_flag: if rng.random_bool(0.05) {
                     "VARIABLE".to_string()
                 } else {
                     "NOT_AVAILABLE".to_string()

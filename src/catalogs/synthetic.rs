@@ -5,7 +5,7 @@
 //! stellar magnitude and spatial distributions to create catalogs that
 //! approximate real-world astronomical data.
 
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::f64::consts::PI;
@@ -202,8 +202,8 @@ impl SyntheticCatalogConfig {
             SpatialDistribution::Uniform => {
                 // Uniform distribution over a sphere
                 // Using the rejection method for uniform spherical distribution
-                let u = Uniform::from(-1.0..1.0);
-                let v = Uniform::from(0.0..1.0);
+                let u = Uniform::try_from(-1.0..1.0).unwrap();
+                let v = Uniform::try_from(0.0..1.0).unwrap();
 
                 // Generate a random point on the unit sphere
                 let z: f64 = u.sample(rng); // z-coordinate in [-1, 1]
@@ -218,7 +218,7 @@ impl SyntheticCatalogConfig {
             SpatialDistribution::GalacticPlane { concentration } => {
                 // Stars concentrated toward the galactic plane
                 // Using a cosine distribution for declination
-                let u = Uniform::from(0.0..1.0);
+                let u = Uniform::try_from(0.0..1.0).unwrap();
 
                 // Generate RA uniformly
                 let ra: f64 = u.sample(rng) * 360.0; // RA in [0, 360]
@@ -240,7 +240,7 @@ impl SyntheticCatalogConfig {
                 radius,
             } => {
                 // Stars clustered around a specific point
-                let u = Uniform::from(0.0..1.0);
+                let u = Uniform::try_from(0.0..1.0).unwrap();
 
                 // Generate a random radius within the cluster
                 // using a normal-like distribution (more stars near center)
@@ -265,7 +265,7 @@ impl SyntheticCatalogConfig {
 
     /// Generate a star's magnitude based on the magnitude distribution
     fn generate_star_magnitude(&self, rng: &mut StdRng) -> f64 {
-        let u = Uniform::from(0.0..1.0);
+        let u = Uniform::try_from(0.0..1.0).unwrap();
 
         // Magnitude distribution parameters
         let min_mag = self.magnitude_dist.min_magnitude;

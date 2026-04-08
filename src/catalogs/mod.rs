@@ -21,7 +21,7 @@ pub use synthetic::{
     SyntheticCatalogConfig,
 };
 
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::path::PathBuf;
@@ -231,8 +231,8 @@ fn generate_synthetic_stars(
     let half_fov = fov_deg / 2.0;
 
     // Distributions for random star positions and magnitudes
-    let ra_dist = Uniform::from(center_ra - half_fov..center_ra + half_fov);
-    let dec_dist = Uniform::from(center_dec - half_fov..center_dec + half_fov);
+    let ra_dist = Uniform::new(center_ra - half_fov, center_ra + half_fov).unwrap();
+    let dec_dist = Uniform::new(center_dec - half_fov, center_dec + half_fov).unwrap();
 
     // For realistic magnitude distribution, use exponential distribution
     // For every step in magnitude, there are ~2.5x more stars
@@ -240,7 +240,7 @@ fn generate_synthetic_stars(
     let max_mag = 8.0; // Dimmest stars
 
     // We'll generate random values and transform them to follow stellar magnitude distribution
-    let uniform = Uniform::from(0.0..1.0);
+    let uniform = Uniform::new(0.0, 1.0).unwrap();
 
     for id in 1..=count {
         let ra = ra_dist.sample(&mut rng);

@@ -351,13 +351,13 @@ impl HipparcosCatalog {
 
         // Add 2000 random stars to simulate a larger catalog
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for i in 1..2000 {
             let hip = 100000 + i;
-            let ra = rng.gen_range(0.0..360.0);
-            let dec = rng.gen_range(-90.0..90.0);
-            let mag = rng.gen_range(3.0..10.0);
+            let ra = rng.random_range(0.0..360.0);
+            let dec = rng.random_range(-90.0..90.0);
+            let mag = rng.random_range(3.0..10.0);
 
             catalog.stars.insert(
                 hip,
@@ -366,10 +366,10 @@ impl HipparcosCatalog {
                     ra,
                     dec,
                     mag,
-                    b_v: Some(rng.gen_range(-0.5..2.0)),
-                    pm_ra: Some(rng.gen_range(-100.0..100.0)),
-                    pm_dec: Some(rng.gen_range(-100.0..100.0)),
-                    parallax: Some(rng.gen_range(1.0..1000.0)),
+                    b_v: Some(rng.random_range(-0.5..2.0)),
+                    pm_ra: Some(rng.random_range(-100.0..100.0)),
+                    pm_dec: Some(rng.random_range(-100.0..100.0)),
+                    parallax: Some(rng.random_range(1.0..1000.0)),
                 },
             );
         }

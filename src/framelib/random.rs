@@ -20,7 +20,7 @@ impl RandomEquatorial {
     /// Create a new RandomEquatorial iterator with a random seed
     pub fn new() -> Self {
         Self {
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_os_rng(),
         }
     }
 }
@@ -36,13 +36,13 @@ impl Iterator for RandomEquatorial {
 
     fn next(&mut self) -> Option<Self::Item> {
         // RA is uniformly distributed from 0 to 2π
-        let ra = self.rng.gen::<f64>() * 2.0 * PI;
+        let ra = self.rng.random::<f64>() * 2.0 * PI;
 
         // For uniform distribution on a sphere, we need to account for the
         // changing area element at different declinations.
         // Using the inverse transform method: dec = arcsin(2u - 1)
         // where u is uniform in [0, 1]
-        let u: f64 = self.rng.gen();
+        let u: f64 = self.rng.random();
         let dec = (2.0 * u - 1.0).asin();
 
         Some(Equatorial::new(ra, dec))
