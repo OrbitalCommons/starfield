@@ -1,6 +1,6 @@
 [package]
 name = "starfield"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2021"
 authors = ["Matthew Goodman"]
 description = "Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms (inspired by skyfield)"
@@ -60,7 +60,7 @@ clap = { version = "4.5.40", features = ["derive"] }
 memmap2 = "0.9"
 uom = "0.37.0"
 sgp4 = "2.3.0"
-starfield-jplephem = { git = "https://github.com/OrbitalCommons/starfield-datasources.git", version = "0.1.0" }
+
 
 [dev-dependencies]
 criterion = "0.5" # Benchmarking

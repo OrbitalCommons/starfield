@@ -21,7 +21,7 @@ pub mod errors;
 pub mod framelib;
 pub mod horizons;
 pub mod image;
-pub use starfield_jplephem as jplephem;
+pub mod jplephem;
 pub mod jplephem_ext;
 pub mod keplerlib;
 pub mod magnitudelib;
