@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.2
+## 0.11.0
 
 - Reintegrate jplephem as an internal module (removes external crate dependency)
 
