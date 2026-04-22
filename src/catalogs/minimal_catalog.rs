@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use super::{StarCatalog, StarData, StarPosition};
 use crate::StarfieldError;
@@ -21,6 +22,29 @@ pub const FORMAT_VERSION: u8 = 3;
 
 /// Fixed length of the catalog description
 pub const DESCRIPTION_LENGTH: usize = 128;
+
+/// Header size in bytes: magic (6) + version (1) + star count (8) + description (128).
+const HEADER_SIZE: u64 = 6 + 1 + 8 + DESCRIPTION_LENGTH as u64;
+
+/// Progress report emitted by [`MinimalCatalog::load_with_progress`] while
+/// a catalog is being deserialized.
+#[derive(Debug, Clone, Copy)]
+pub struct ProgressUpdate {
+    /// Bytes consumed from the underlying reader so far (header + stars read).
+    pub bytes_read: u64,
+    /// Total bytes if known (from file metadata); `None` for streaming sources.
+    pub total_bytes: Option<u64>,
+    /// Stars deserialized so far.
+    pub stars_loaded: usize,
+    /// Total stars declared in the catalog header.
+    pub stars_total: usize,
+    /// Elapsed time since the load began.
+    pub elapsed: Duration,
+}
+
+/// Fire the progress callback every this-many stars during
+/// [`MinimalCatalog::load_with_progress`].
+const PROGRESS_STAR_INTERVAL: usize = 1_000_000;
 
 /// Minimal star entry with only essential fields
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -222,10 +246,29 @@ impl MinimalCatalog {
         Ok(())
     }
 
-    /// Load catalog from a binary file
+    /// Load catalog from a binary file.
+    ///
+    /// For large catalogs where progress feedback matters, see
+    /// [`MinimalCatalog::load_with_progress`].
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, StarfieldError> {
-        // Open file for reading
+        Self::load_with_progress(path, |_| {})
+    }
+
+    /// Load catalog from a binary file, invoking `on_progress` periodically
+    /// as stars are deserialized.
+    ///
+    /// The callback fires roughly every one million stars and once more at
+    /// the end of the load (so callers always see a final "complete" update).
+    /// For catalogs smaller than the interval, only the final update fires.
+    pub fn load_with_progress<P, F>(path: P, mut on_progress: F) -> Result<Self, StarfieldError>
+    where
+        P: AsRef<Path>,
+        F: FnMut(ProgressUpdate),
+    {
+        let start = Instant::now();
+
         let file = File::open(&path)?;
+        let total_bytes = file.metadata().ok().map(|m| m.len());
         let mut reader = BufReader::new(file);
 
         // Read and verify magic bytes
@@ -262,10 +305,22 @@ impl MinimalCatalog {
 
         let description = String::from_utf8_lossy(&description_bytes[..null_pos]).to_string();
 
-        // Pre-allocate stars vector
-        let mut stars = Vec::with_capacity(star_count as usize);
+        let star_count_usize = star_count as usize;
+        let star_size = MinimalStar::size_bytes() as u64;
 
-        // Read all stars
+        let make_update = |stars_loaded: usize, elapsed: Duration| ProgressUpdate {
+            bytes_read: HEADER_SIZE + (stars_loaded as u64) * star_size,
+            total_bytes,
+            stars_loaded,
+            stars_total: star_count_usize,
+            elapsed,
+        };
+
+        // Pre-allocate stars vector
+        let mut stars = Vec::with_capacity(star_count_usize);
+
+        // Read all stars, firing the progress callback every PROGRESS_STAR_INTERVAL.
+        let mut next_callback_at = PROGRESS_STAR_INTERVAL;
         for _ in 0..star_count {
             match MinimalStar::read_binary(&mut reader) {
                 Ok(star) => stars.push(star),
@@ -279,16 +334,24 @@ impl MinimalCatalog {
                     }
                 }
             }
+
+            if stars.len() == next_callback_at {
+                on_progress(make_update(stars.len(), start.elapsed()));
+                next_callback_at += PROGRESS_STAR_INTERVAL;
+            }
         }
 
         // Verify we've read the expected number of stars
-        if stars.len() != star_count as usize {
+        if stars.len() != star_count_usize {
             return Err(StarfieldError::DataError(format!(
                 "Expected {} stars but read {}",
                 star_count,
                 stars.len()
             )));
         }
+
+        // Always emit a terminal update so callers see a completion signal.
+        on_progress(make_update(stars.len(), start.elapsed()));
 
         Ok(Self { stars, description })
     }
@@ -617,6 +680,37 @@ mod tests {
         } else {
             panic!("Expected DataError with truncated file message");
         }
+    }
+
+    #[test]
+    fn test_load_with_progress_callback() {
+        use std::cell::RefCell;
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("progress_catalog.bin");
+
+        let catalog = create_test_catalog();
+        catalog.save(&file_path).unwrap();
+
+        let updates = RefCell::new(Vec::new());
+        let loaded = MinimalCatalog::load_with_progress(&file_path, |u| {
+            updates.borrow_mut().push(u);
+        })
+        .unwrap();
+
+        assert_eq!(loaded.len(), catalog.len());
+
+        let updates = updates.into_inner();
+        // Small catalog (5 stars) is well under the 1M interval, so only the
+        // terminal callback fires.
+        assert_eq!(updates.len(), 1);
+        let last = updates.last().unwrap();
+        assert_eq!(last.stars_loaded, catalog.len());
+        assert_eq!(last.stars_total, catalog.len());
+        let expected_bytes =
+            HEADER_SIZE + (catalog.len() as u64) * MinimalStar::size_bytes() as u64;
+        assert_eq!(last.bytes_read, expected_bytes);
+        assert_eq!(last.total_bytes, Some(expected_bytes));
     }
 
     #[test]
