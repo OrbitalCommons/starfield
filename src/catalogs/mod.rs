@@ -35,6 +35,61 @@ pub trait StarPosition {
     fn dec(&self) -> f64;
 }
 
+/// Sérsic surface-brightness profile parameters for an extended source.
+///
+/// Represents the elliptical Sérsic model commonly used to describe
+/// galaxy morphology in optical imaging. The brightness at angular
+/// distance `r` along the major axis is proportional to
+///
+/// ```text
+/// I(r) ∝ exp[ -b_n · ( (r / θ_half)^(1/n) - 1 ) ]
+/// ```
+///
+/// where `b_n ≈ 2n − 1/3` is the constant that makes `θ_half` the
+/// half-light radius. The `axis_ratio` flattens the profile along the
+/// minor axis, and `position_angle_deg` rotates the major axis east of
+/// north (J2000).
+///
+/// Common Sérsic indices: `n = 0.5` is Gaussian, `n = 1` is exponential
+/// (typical late-type disks), `n = 4` is the de Vaucouleurs profile
+/// (typical early-type bulges).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SersicProfile {
+    /// Half-light radius along the major axis, in arcseconds.
+    pub theta_half_arcsec: f64,
+    /// Sérsic index *n* (dimensionless, typically ~0.5 to ~6 for galaxies).
+    pub n: f64,
+    /// Axis ratio b/a, where b ≤ a. `1.0` is circular, `0.0` is degenerate edge-on.
+    pub axis_ratio: f64,
+    /// Position angle of the major axis, degrees east of north (J2000).
+    pub position_angle_deg: f64,
+}
+
+/// Trait for catalog entries that may be spatially extended on the sky.
+///
+/// Point sources (stars) get the default implementation, which returns
+/// `None` — renderers should treat those as deltas convolved with the
+/// optical PSF. Galaxies and other extended sources return
+/// `Some(SersicProfile)` describing their morphology, and a
+/// surface-brightness-aware renderer should integrate that profile over
+/// the pixel grid instead of stamping a single point PSF.
+///
+/// Implementing the trait does not commit a catalog entry to *being*
+/// extended at any given moment: a galaxy too small to resolve at the
+/// instrument's plate scale, or one whose Sérsic fit failed in the
+/// upstream catalog, can return `None` and be treated as a point source
+/// (or skipped entirely) by downstream consumers.
+pub trait ExtendedSource {
+    /// Returns the Sérsic profile describing this source's spatial
+    /// extent, or `None` if the source is a point or its morphology is
+    /// unknown / unfit.
+    fn sersic_profile(&self) -> Option<SersicProfile> {
+        None
+    }
+}
+
+impl ExtendedSource for StarData {}
+
 /// Common star properties that all catalog entries must provide
 /// This represents the minimal set of properties required for rendering and calculations
 #[derive(Debug, Clone, Copy)]
@@ -304,5 +359,40 @@ mod tests {
             .min_by(|a, b| a.magnitude.partial_cmp(&b.magnitude).unwrap())
             .unwrap();
         assert_eq!(brightest.magnitude, -1.5);
+    }
+
+    #[test]
+    fn test_star_data_is_a_point_source_via_extended_source() {
+        // The default ExtendedSource impl on StarData returns None,
+        // marking it as a point source for renderers that dispatch on
+        // morphology.
+        let star = StarData::new(1, 12.34, 56.78, 9.0, Some(0.6));
+        assert_eq!(star.sersic_profile(), None);
+    }
+
+    #[test]
+    fn test_extended_source_default_impl_returns_none() {
+        // Any type that derives only the default ExtendedSource impl
+        // (no override) must report as a point source — the trait
+        // contract for downstream dispatchers.
+        struct PointSource;
+        impl ExtendedSource for PointSource {}
+        assert_eq!(PointSource.sersic_profile(), None);
+    }
+
+    #[test]
+    fn test_sersic_profile_round_trips_through_struct_literal() {
+        // Smoke-test the public field shape of SersicProfile so a
+        // future field rename is caught here rather than far downstream.
+        let p = SersicProfile {
+            theta_half_arcsec: 3.5,
+            n: 4.0,
+            axis_ratio: 0.7,
+            position_angle_deg: 32.0,
+        };
+        assert_eq!(p.theta_half_arcsec, 3.5);
+        assert_eq!(p.n, 4.0);
+        assert_eq!(p.axis_ratio, 0.7);
+        assert_eq!(p.position_angle_deg, 32.0);
     }
 }
