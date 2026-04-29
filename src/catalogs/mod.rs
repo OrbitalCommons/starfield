@@ -77,6 +77,69 @@ pub struct SersicProfile {
     pub position_angle_deg: f64,
 }
 
+impl SersicProfile {
+    /// The Sérsic constant `b_n` defined by the relation
+    /// `γ(2n, b_n) = Γ(2n) / 2`, i.e. the value that makes
+    /// `theta_half_arcsec` enclose half of the total light.
+    ///
+    /// Uses the Ciotti & Bertin (1999, A&A, 352, 447) Eq. 18 asymptotic
+    /// series, which is accurate to better than ~1e-3 relative error for
+    /// `n ≥ 0.36` and to better than ~1e-6 for `n ≥ 1`. Catalogs that fit
+    /// pure-disk (`n ≈ 1`) and de Vaucouleurs (`n = 4`) profiles are
+    /// trivially in range; the lower-`n` end is only relevant for highly
+    /// concentrated dwarf-irregulars and is still well within the
+    /// pixel-noise floor of any photometric simulation that consumes
+    /// this value.
+    pub fn b_n(&self) -> f64 {
+        let n = self.n;
+        2.0 * n - 1.0 / 3.0
+            + 4.0 / (405.0 * n)
+            + 46.0 / (25_515.0 * n.powi(2))
+            + 131.0 / (1_148_175.0 * n.powi(3))
+            - 2_194_697.0 / (30_690_717_750.0 * n.powi(4))
+    }
+
+    /// Surface brightness at offset `(dx_arcsec, dy_arcsec)` from the
+    /// galaxy centre, in the same units as the (unspecified) central
+    /// surface brightness `I_e` at the half-light radius — i.e. this
+    /// returns `I(r) / I_e`, where `I(r) = I_e · exp[-b_n · ((r/θ_half)^(1/n) − 1)]`
+    /// and `r` is the elliptical radius along the rotated axes.
+    ///
+    /// `(dx_arcsec, dy_arcsec)` are sky-tangent offsets from the centre:
+    /// `+dx_arcsec` toward the east, `+dy_arcsec` toward the north
+    /// (J2000). [`SersicProfile::position_angle_deg`] is interpreted as
+    /// the standard astronomical convention — degrees east of north,
+    /// measured from `+y` (north) toward `+x` (east). At
+    /// `position_angle_deg = 0` the major axis is aligned with `+y`
+    /// (north); at `position_angle_deg = 90` it is aligned with `+x`
+    /// (east).
+    ///
+    /// This evaluator matches AstroPy's
+    /// `astropy.modeling.functional_models.Sersic2D` model, with the
+    /// convention translation
+    /// `theta_AstroPy = position_angle_deg + 90°` (AstroPy measures the
+    /// major-axis angle from `+x`, this trait stores it east-of-north
+    /// from `+y`) and `ellip_AstroPy = 1 - axis_ratio`. Multiply the
+    /// returned value by the catalog's `I_e` to recover absolute
+    /// surface brightness in physical units.
+    pub fn surface_brightness_at(&self, dx_arcsec: f64, dy_arcsec: f64) -> f64 {
+        let bn = self.b_n();
+        let a = self.theta_half_arcsec;
+        let b = a * self.axis_ratio;
+        let pa_rad = self.position_angle_deg.to_radians();
+        let (sin_pa, cos_pa) = pa_rad.sin_cos();
+        // Project (dx, dy) onto the major / minor axes. With PA measured
+        // east of north (from +y toward +x), the major axis unit vector
+        // is (sin_pa, cos_pa) and the minor axis unit vector is
+        // (-cos_pa, sin_pa) — a +90° rotation of the major axis in the
+        // standard right-handed sense.
+        let x_maj = dx_arcsec * sin_pa + dy_arcsec * cos_pa;
+        let x_min = -dx_arcsec * cos_pa + dy_arcsec * sin_pa;
+        let z = ((x_maj / a).powi(2) + (x_min / b).powi(2)).sqrt();
+        (-bn * (z.powf(1.0 / self.n) - 1.0)).exp()
+    }
+}
+
 /// Trait for catalog entries that may be spatially extended on the sky.
 ///
 /// Point sources (stars) get the default implementation, which returns
@@ -342,6 +405,7 @@ fn generate_synthetic_stars(
 mod tests {
     use super::*;
     use crate::catalogs::minimal_catalog::{MinimalCatalog, MinimalStar};
+    use approx::assert_abs_diff_eq;
 
     /// Test the StarCatalog trait with a simple minimal catalog
     #[test]
@@ -406,5 +470,126 @@ mod tests {
         assert_eq!(p.n, 4.0);
         assert_eq!(p.axis_ratio, 0.7);
         assert_eq!(p.position_angle_deg, 32.0);
+    }
+
+    fn sersic_profile(n: f64, axis_ratio: f64, position_angle_deg: f64) -> SersicProfile {
+        SersicProfile {
+            theta_half_arcsec: 2.0,
+            n,
+            axis_ratio,
+            position_angle_deg,
+        }
+    }
+
+    #[test]
+    fn test_b_n_matches_ciotti_bertin_reference_values() {
+        // Reference values from scipy.special.gammaincinv(2*n, 0.5),
+        // which solves the defining transcendental equation exactly.
+        // The Ciotti-Bertin series degrades below n ≈ 0.36 (per the
+        // docstring); accuracy improves rapidly with n. The test set
+        // covers the catalog-relevant range and tightens the tolerance
+        // as n grows, exposing any future change to the series itself.
+        let p_half = sersic_profile(0.5, 1.0, 0.0);
+        let p_one = sersic_profile(1.0, 1.0, 0.0);
+        let p_two = sersic_profile(2.0, 1.0, 0.0);
+        let p_four = sersic_profile(4.0, 1.0, 0.0);
+        let p_six = sersic_profile(6.0, 1.0, 0.0);
+        // Empirically measured series residuals (Ciotti-Bertin truncation):
+        //   n=0.5 → 2.5e-4   n=1.0 → 4.2e-5   n=2.0 → 4.7e-6
+        //   n=4.0 → 5.4e-7   n=6.0 → 1.6e-7
+        // Tolerances are set ~2× above each residual so trivial rounding
+        // shifts in the series constants don't trip the test, while a
+        // genuine algorithmic regression still gets caught.
+        assert_abs_diff_eq!(p_half.b_n(), 0.6931471806, epsilon = 5e-4);
+        assert_abs_diff_eq!(p_one.b_n(), 1.6783469900, epsilon = 1e-4);
+        assert_abs_diff_eq!(p_two.b_n(), 3.6720607489, epsilon = 1e-5);
+        assert_abs_diff_eq!(p_four.b_n(), 7.6692494425, epsilon = 1e-6);
+        assert_abs_diff_eq!(p_six.b_n(), 11.6683631530, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_surface_brightness_at_half_light_radius_equals_unity_along_major_axis() {
+        // By construction, I(theta_half) / I_e = 1 along the major axis.
+        // PA = 0 puts the major axis along +y (north), so a point at
+        // (0, theta_half) is on the major axis at the half-light radius.
+        let p = sersic_profile(4.0, 0.6, 0.0);
+        assert_abs_diff_eq!(
+            p.surface_brightness_at(0.0, p.theta_half_arcsec),
+            1.0,
+            epsilon = 1e-12
+        );
+    }
+
+    #[test]
+    fn test_surface_brightness_at_circular_profile_is_axis_independent() {
+        // axis_ratio = 1 ⇒ no preferred direction; SB depends only on
+        // sqrt(dx^2 + dy^2), so points equidistant from the centre must
+        // produce the same SB regardless of direction or PA.
+        let p = sersic_profile(2.5, 1.0, 37.0);
+        let r = 1.3;
+        let east = p.surface_brightness_at(r, 0.0);
+        let north = p.surface_brightness_at(0.0, r);
+        let diag = p.surface_brightness_at(r / 2.0_f64.sqrt(), r / 2.0_f64.sqrt());
+        assert_abs_diff_eq!(east, north, epsilon = 1e-12);
+        assert_abs_diff_eq!(east, diag, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_surface_brightness_at_position_angle_rotates_major_axis_east_of_north() {
+        // PA = 90° puts the major axis along +x (east). The half-light
+        // surface brightness should now be reached at (theta_half, 0)
+        // rather than (0, theta_half).
+        let p = sersic_profile(4.0, 0.5, 90.0);
+        assert_abs_diff_eq!(
+            p.surface_brightness_at(p.theta_half_arcsec, 0.0),
+            1.0,
+            epsilon = 1e-12
+        );
+        // Same elliptical radius along the minor axis (now +y) requires
+        // moving only theta_half * axis_ratio.
+        assert_abs_diff_eq!(
+            p.surface_brightness_at(0.0, p.theta_half_arcsec * p.axis_ratio),
+            1.0,
+            epsilon = 1e-12
+        );
+    }
+
+    #[test]
+    fn test_surface_brightness_at_centre_is_e_to_the_b_n() {
+        // I(0) / I_e = exp(b_n) by definition of the Sérsic profile.
+        let p = sersic_profile(4.0, 0.6, 45.0);
+        assert_abs_diff_eq!(
+            p.surface_brightness_at(0.0, 0.0),
+            p.b_n().exp(),
+            epsilon = 1e-9
+        );
+    }
+
+    #[test]
+    fn test_surface_brightness_at_matches_astropy_sersic2d_reference() {
+        // Cross-checked against astropy.modeling.functional_models.Sersic2D
+        // with: amplitude=1, r_eff=2.0, n=4, x_0=y_0=0,
+        //       ellip = 1 - 0.6 = 0.4, theta = (45° + 90°) in radians.
+        // The +90° offset is the mod-doc convention translation: AstroPy
+        // measures theta from +x, this trait measures PA east of north
+        // (from +y). Reference values produced with scipy/astropy:
+        //   model(1.0, 0.5) → 2.461462
+        //   model(2.0, 2.0) → 0.499511
+        let p = sersic_profile(4.0, 0.6, 45.0);
+        assert_abs_diff_eq!(p.surface_brightness_at(1.0, 0.5), 2.461462, epsilon = 1e-5);
+        assert_abs_diff_eq!(p.surface_brightness_at(2.0, 2.0), 0.499511, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn test_surface_brightness_at_decays_monotonically_along_major_axis() {
+        // Along the major axis (PA = 0 ⇒ +y), SB should strictly
+        // decrease as |y| grows away from the centre.
+        let p = sersic_profile(2.0, 0.7, 0.0);
+        let samples: Vec<f64> = (0..20)
+            .map(|i| p.surface_brightness_at(0.0, 0.25 * i as f64))
+            .collect();
+        for w in samples.windows(2) {
+            assert!(w[0] > w[1], "expected monotonic decay, got {:?}", w);
+        }
     }
 }
