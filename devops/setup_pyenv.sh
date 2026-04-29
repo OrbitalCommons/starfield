@@ -1,24 +1,43 @@
 #!/bin/bash
 set -e
 
+# Sets up a pyenv-managed Python interpreter and installs the reference
+# packages used by `cargo test --features python-tests`.
+#
+# Note on venvs: previous versions of this script created a pyenv-virtualenv
+# named "starfield" and installed packages into it. PyO3's embedded
+# interpreter (used by `src/pybridge`) does not honor pyenv-virtualenv at
+# runtime — it links against the *base* `libpython` and looks up packages
+# in that base interpreter's `site-packages`. So packages must live in the
+# base interpreter, not a venv. The venv is removed here.
+
 # Configuration variables
 PYENV_ROOT="$HOME/.pyenv"
 PYTHON_VERSION=$(cat "$(dirname "$0")/../.python-version")
-PYENV_ENV_NAME="starfield"
+SKYFIELD_VERSION=$(cat "$(dirname "$0")/../.skyfield-version")
+ASTROPY_VERSION=$(cat "$(dirname "$0")/../.astropy-version")
 
 echo "=== Setting up pyenv environment for Starfield ==="
+
+# Add pyenv to PATH if it's installed but not yet visible in this shell
+# (running this script via `bash devops/setup_pyenv.sh` from a fresh
+# session won't have sourced ~/.bashrc, so command -v pyenv would
+# falsely report missing and try to reinstall over a working install).
+if [ -d "$PYENV_ROOT" ] && ! command -v pyenv &> /dev/null; then
+    export PATH="$PYENV_ROOT/bin:$PATH"
+fi
 
 # Check if pyenv is installed
 if ! command -v pyenv &> /dev/null; then
     echo "Pyenv not found. Installing pyenv..."
     curl https://pyenv.run | bash
-    
+
     # Add pyenv to PATH and initialize for current session
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init --path)"
     eval "$(pyenv init -)"
     eval "$(pyenv virtualenv-init -)"
-    
+
     # Add pyenv to .bashrc if not already there
     if ! grep -q "pyenv init" "$HOME/.bashrc"; then
         echo "Adding pyenv to .bashrc..."
@@ -39,42 +58,47 @@ else
     eval "$(pyenv virtualenv-init -)"
 fi
 
-# Install Python version via pyenv if not already installed
-if ! pyenv versions | grep -q "$PYTHON_VERSION"; then
+# Install Python version via pyenv if not already installed.
+# `pyenv versions --bare` prints one version-name per line so we can match
+# exactly (the previous `pyenv versions | grep -q` would match substrings,
+# including the "(set by .../starfield/...)" annotation, which silently
+# masked missing installs).
+if ! pyenv versions --bare | grep -qx "$PYTHON_VERSION"; then
     echo "Installing Python $PYTHON_VERSION..."
-    pyenv install $PYTHON_VERSION
+    pyenv install "$PYTHON_VERSION"
 else
     echo "Python $PYTHON_VERSION already installed."
 fi
 
-# Create or update pyenv environment
-if ! pyenv versions | grep -q "$PYENV_ENV_NAME"; then
-    echo "Creating pyenv environment '$PYENV_ENV_NAME'..."
-    pyenv virtualenv $PYTHON_VERSION $PYENV_ENV_NAME
-else
-    echo "Pyenv environment '$PYENV_ENV_NAME' already exists."
-fi
+# Pin the project to the base interpreter — packages get installed there.
+echo "Setting Python $PYTHON_VERSION as local interpreter..."
+pyenv local "$PYTHON_VERSION"
 
-# Set local Python version to our environment
-echo "Setting '$PYENV_ENV_NAME' as local Python environment..."
-pyenv local $PYENV_ENV_NAME
+# Path to the base interpreter (not a shim — pip installs need the real exe).
+PYTHON_EXEC="$PYENV_ROOT/versions/$PYTHON_VERSION/bin/python"
 
-# Install required packages
+# Install required packages into the base interpreter.
 echo "Installing required Python packages..."
-pip install --upgrade pip
-pip install skyfield pytest
+"$PYTHON_EXEC" -m pip install --upgrade pip
+"$PYTHON_EXEC" -m pip install \
+    "skyfield==${SKYFIELD_VERSION}" \
+    "astropy==${ASTROPY_VERSION}" \
+    scipy \
+    pytest
 
-# Write the Python path to a file for CI
-PYTHON_EXEC=$(which python)
+# Record the interpreter path for CI / dotenv loaders.
 echo "$PYTHON_EXEC" > .python_path
 
-# Create environment variables file for CI
+# Create environment variables file for CI. LD_LIBRARY_PATH points at the
+# pyenv install's lib dir so the test binary (linked against
+# libpython3.10.so.1.0) can find it at runtime.
 echo "Creating environment variables file for CI..."
 {
     echo "PYO3_PYTHON=$PYTHON_EXEC"
-    echo "PYTHONPATH=$(pwd)"
     echo "PYTHON_SYS_EXECUTABLE=$PYTHON_EXEC"
     echo "PYTHON_COMMAND=$PYTHON_EXEC"
+    echo "LD_LIBRARY_PATH=$PYENV_ROOT/versions/$PYTHON_VERSION/lib"
+    echo "PYTHONPATH=$(pwd)"
 } > .env.python
 
 echo "Environment variables stored in .env.python"
@@ -82,8 +106,5 @@ echo "Environment variables stored in .env.python"
 echo ""
 echo "=== Python environment setup complete ==="
 echo ""
-echo "The pyenv environment '$PYENV_ENV_NAME' is now configured with Python $PYTHON_VERSION"
-echo "It is set as the local Python version for this directory."
-echo ""
-echo "To activate manually (should be automatic in this directory):"
-echo "  pyenv activate $PYENV_ENV_NAME"
+echo "Python $PYTHON_VERSION is now the local interpreter for this directory,"
+echo "with skyfield $SKYFIELD_VERSION, astropy $ASTROPY_VERSION, and scipy installed."

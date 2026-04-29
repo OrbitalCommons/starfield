@@ -90,7 +90,7 @@ For NumPy arrays, use `rust.collect_array(np_array)` — the bridge preserves dt
 ### Environment Setup
 
 - Python 3.10.8 managed via pyenv (see `.python-version`)
-- Virtual environment "starfield" with `skyfield==1.53` (see `.skyfield-version`)
+- Virtual environment "starfield" with `skyfield` (see `.skyfield-version`) and `astropy` (see `.astropy-version`). The bridge is library-agnostic — any package installed in the venv is reachable from `bridge.run_py_to_json(...)`.
 - `devops/setup_pyenv.sh` — installs pyenv, creates venv, installs dependencies, generates `.env.python`
 - `devops/verify_pyenv.sh` — validates the Python environment is correctly configured
 - `.env` and `.env.python` — set `PYO3_PYTHON`, `PYTHONPATH`, `LD_LIBRARY_PATH` for PyO3

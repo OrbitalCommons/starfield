@@ -51,14 +51,14 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install Python and Skyfield
+      - name: Install Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
-      - name: Install Skyfield
+
+      - name: Install Skyfield and AstroPy
         run: |
-          pip install skyfield==1.53
+          pip install "skyfield==$(cat .skyfield-version)" "astropy==$(cat .astropy-version)"
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

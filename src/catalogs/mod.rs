@@ -592,4 +592,64 @@ mod tests {
             assert!(w[0] > w[1], "expected monotonic decay, got {:?}", w);
         }
     }
+
+    /// Live cross-check of [`SersicProfile::surface_brightness_at`] against
+    /// `astropy.modeling.functional_models.Sersic2D` via the in-process
+    /// Python bridge.
+    ///
+    /// This is the "AstroPy-backed" sibling of the existing Skyfield
+    /// comparison tests. It demonstrates that the same `PyRustBridge`
+    /// works for both libraries — no parallel infrastructure needed,
+    /// just `import astropy...` instead of `from skyfield.api ...`.
+    #[cfg(feature = "python-tests")]
+    #[test]
+    fn test_surface_brightness_at_matches_astropy_sersic2d_via_bridge() {
+        use crate::pybridge::{bridge::PyRustBridge, helpers::PythonResult};
+
+        let bridge = PyRustBridge::new().expect("bridge");
+        let raw = bridge
+            .run_py_to_json(
+                r#"
+import numpy as np
+from astropy.modeling.functional_models import Sersic2D
+
+# Use a circular profile (axis_ratio=1 -> ellip=0) so the position-angle
+# convention doesn't enter the comparison. The Sérsic radial form is
+# what's being cross-checked here; convention translation between the
+# `position_angle_deg` field and AstroPy's `theta` is exercised by the
+# hardcoded reference test above.
+model = Sersic2D(amplitude=1.0, r_eff=2.0, n=4.0,
+                 x_0=0.0, y_0=0.0, ellip=0.0, theta=0.0)
+
+xs = np.array([0.0, 1.0, 2.0, 3.0, 5.0])
+ys = np.array([2.0, 0.0, 2.0, 1.0, 0.0])
+out = model(xs, ys).astype(np.float64)
+rust.collect_array(out)
+"#,
+            )
+            .expect("bridge run failed");
+
+        let parsed = PythonResult::try_from(raw.as_str()).expect("bad json from bridge");
+        let astropy_values: Vec<f64> = match parsed {
+            PythonResult::Array { data, .. } => data
+                .chunks_exact(8)
+                .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+                .collect(),
+            other => panic!("expected Array, got {other:?}"),
+        };
+
+        let p = sersic_profile(4.0, 1.0, 0.0);
+        let rust_values = [
+            p.surface_brightness_at(0.0, 2.0),
+            p.surface_brightness_at(1.0, 0.0),
+            p.surface_brightness_at(2.0, 2.0),
+            p.surface_brightness_at(3.0, 1.0),
+            p.surface_brightness_at(5.0, 0.0),
+        ];
+
+        assert_eq!(astropy_values.len(), rust_values.len());
+        for (rust, astropy) in rust_values.iter().zip(astropy_values.iter()) {
+            assert_abs_diff_eq!(*rust, *astropy, epsilon = 1e-6);
+        }
+    }
 }
