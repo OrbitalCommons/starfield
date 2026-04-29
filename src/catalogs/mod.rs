@@ -10,12 +10,16 @@ pub mod features;
 mod gaia;
 pub mod hipparcos;
 pub mod minimal_catalog;
+#[cfg(feature = "photometry")]
+pub mod photometry;
 pub mod synthetic;
 
 pub use features::{FeatureCatalog, FeatureType, SkyFeature};
 pub use gaia::{GaiaCatalog, GaiaEntry};
 pub use hipparcos::{HipparcosCatalog, HipparcosEntry};
 pub use minimal_catalog::{MinimalCatalog, MinimalStar, ProgressUpdate};
+#[cfg(feature = "photometry")]
+pub use photometry::{Band, Photometry};
 pub use synthetic::{
     create_fov_catalog, create_synthetic_catalog, MagnitudeDistribution, SpatialDistribution,
     SyntheticCatalogConfig,

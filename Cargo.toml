@@ -71,3 +71,7 @@ tempfile = "3.8"  # Temporary file creation for tests
 
 [features]
 python-tests = ["pyo3", "numpy", "anyhow"]
+# Optional traits for per-band photometry, measured radial surface-brightness
+# profiles, and isophote shape series. Gated behind a feature so consumers
+# that only need positions/magnitudes don't pay for the larger trait surface.
+photometry = []
