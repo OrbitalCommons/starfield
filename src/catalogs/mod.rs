@@ -117,11 +117,13 @@ impl SersicProfile {
     /// This evaluator matches AstroPy's
     /// `astropy.modeling.functional_models.Sersic2D` model, with the
     /// convention translation
-    /// `theta_AstroPy = position_angle_deg + 90°` (AstroPy measures the
-    /// major-axis angle from `+x`, this trait stores it east-of-north
-    /// from `+y`) and `ellip_AstroPy = 1 - axis_ratio`. Multiply the
-    /// returned value by the catalog's `I_e` to recover absolute
-    /// surface brightness in physical units.
+    /// `theta_AstroPy = 90° − position_angle_deg` (AstroPy measures
+    /// `theta` counter-clockwise from `+x`; this trait stores PA
+    /// east-of-north — clockwise from `+y` toward `+x` — so the two
+    /// rotations are mirrored about the line `theta_AstroPy = 90°`)
+    /// and `ellip_AstroPy = 1 − axis_ratio`. Multiply the returned
+    /// value by the catalog's `I_e` to recover absolute surface
+    /// brightness in physical units.
     pub fn surface_brightness_at(&self, dx_arcsec: f64, dy_arcsec: f64) -> f64 {
         let bn = self.b_n();
         let a = self.theta_half_arcsec;
@@ -569,15 +571,52 @@ mod tests {
     fn test_surface_brightness_at_matches_astropy_sersic2d_reference() {
         // Cross-checked against astropy.modeling.functional_models.Sersic2D
         // with: amplitude=1, r_eff=2.0, n=4, x_0=y_0=0,
-        //       ellip = 1 - 0.6 = 0.4, theta = (45° + 90°) in radians.
-        // The +90° offset is the mod-doc convention translation: AstroPy
-        // measures theta from +x, this trait measures PA east of north
-        // (from +y). Reference values produced with scipy/astropy:
+        //       ellip = 1 - 0.6 = 0.4,
+        //       theta = (90° − 45°) in radians  (the documented
+        //                                        convention translation).
+        // Reference values produced with scipy/astropy:
         //   model(1.0, 0.5) → 2.461462
         //   model(2.0, 2.0) → 0.499511
         let p = sersic_profile(4.0, 0.6, 45.0);
         assert_abs_diff_eq!(p.surface_brightness_at(1.0, 0.5), 2.461462, epsilon = 1e-5);
         assert_abs_diff_eq!(p.surface_brightness_at(2.0, 2.0), 0.499511, epsilon = 1e-5);
+    }
+
+    /// Pin the PA convention against axis-aligned cases that distinguish
+    /// "major axis along +y at PA=0" (the documented behavior) from
+    /// alternative conventions.
+    ///
+    /// This is the regression guard for #124 — the docstring used to
+    /// claim `theta_AstroPy = position_angle_deg + 90°`, which gives the
+    /// same answer as the corrected `90° − position_angle_deg` formula
+    /// only at PA=0° (since 0+90 = 90−0). Any non-zero PA distinguishes
+    /// them; PA=0° + axis_ratio<1 distinguishes "major along +y"
+    /// (correct) from "major along +x" (would arise from an axis swap).
+    #[test]
+    fn test_position_angle_zero_aligns_major_axis_with_north() {
+        // Axis ratio 0.5 ⇒ b = θ_half/2. At (θ_half, 0) the elliptical
+        // radius is z = θ_half / b = 2, so SB drops well below the
+        // half-light SB of 1.0; the strict inequality is the convention
+        // anchor — an axis swap inverts it.
+        let p_pa0 = sersic_profile(4.0, 0.5, 0.0);
+        let on_major = p_pa0.surface_brightness_at(0.0, 2.0);
+        let on_minor = p_pa0.surface_brightness_at(2.0, 0.0);
+        assert_abs_diff_eq!(on_major, 1.0, epsilon = 1e-12);
+        assert!(
+            on_minor < on_major,
+            "PA=0 should put major axis along +y; \
+             got on_major={on_major}, on_minor={on_minor}"
+        );
+
+        // PA=90 swaps which axis is "major".
+        let p_pa90 = sersic_profile(4.0, 0.5, 90.0);
+        let on_major_90 = p_pa90.surface_brightness_at(2.0, 0.0);
+        let on_minor_90 = p_pa90.surface_brightness_at(0.0, 2.0);
+        assert_abs_diff_eq!(on_major_90, 1.0, epsilon = 1e-12);
+        assert!(on_minor_90 < on_major_90);
+
+        // By symmetry the off-axis values must agree across the two PAs.
+        assert_abs_diff_eq!(on_minor, on_minor_90, epsilon = 1e-12);
     }
 
     #[test]
@@ -601,6 +640,15 @@ mod tests {
     /// comparison tests. It demonstrates that the same `PyRustBridge`
     /// works for both libraries — no parallel infrastructure needed,
     /// just `import astropy...` instead of `from skyfield.api ...`.
+    ///
+    /// Uses a **non-circular profile at PA=45°** to exercise the
+    /// documented convention translation
+    /// `theta_AstroPy = 90° − position_angle_deg`. A circular profile
+    /// would tell us nothing about PA; PA=0° is degenerate because
+    /// `90° − 0° = 0° + 90°`. PA=45° is the cleanest probe — the two
+    /// candidate translations differ (45° vs 135°) and AstroPy's
+    /// outputs differ accordingly, so a future drift in either the
+    /// implementation or the docstring fires this test.
     #[cfg(feature = "python-tests")]
     #[test]
     fn test_surface_brightness_at_matches_astropy_sersic2d_via_bridge() {
@@ -613,16 +661,17 @@ mod tests {
 import numpy as np
 from astropy.modeling.functional_models import Sersic2D
 
-# Use a circular profile (axis_ratio=1 -> ellip=0) so the position-angle
-# convention doesn't enter the comparison. The Sérsic radial form is
-# what's being cross-checked here; convention translation between the
-# `position_angle_deg` field and AstroPy's `theta` is exercised by the
-# hardcoded reference test above.
+# Documented convention: theta_AstroPy = 90° - position_angle_deg
+# (AstroPy measures theta CCW from +x; this trait stores PA east of
+# north — CW from +y toward +x — so the rotations are mirrored.)
+PA_DEG = 45.0
 model = Sersic2D(amplitude=1.0, r_eff=2.0, n=4.0,
-                 x_0=0.0, y_0=0.0, ellip=0.0, theta=0.0)
+                 x_0=0.0, y_0=0.0,
+                 ellip=1.0 - 0.6,
+                 theta=np.deg2rad(90.0 - PA_DEG))
 
-xs = np.array([0.0, 1.0, 2.0, 3.0, 5.0])
-ys = np.array([2.0, 0.0, 2.0, 1.0, 0.0])
+xs = np.array([1.0, 2.0, 3.0, 0.5, 4.0])
+ys = np.array([0.5, 2.0, 1.5, 1.5, 0.0])
 out = model(xs, ys).astype(np.float64)
 rust.collect_array(out)
 "#,
@@ -638,13 +687,13 @@ rust.collect_array(out)
             other => panic!("expected Array, got {other:?}"),
         };
 
-        let p = sersic_profile(4.0, 1.0, 0.0);
+        let p = sersic_profile(4.0, 0.6, 45.0);
         let rust_values = [
-            p.surface_brightness_at(0.0, 2.0),
-            p.surface_brightness_at(1.0, 0.0),
+            p.surface_brightness_at(1.0, 0.5),
             p.surface_brightness_at(2.0, 2.0),
-            p.surface_brightness_at(3.0, 1.0),
-            p.surface_brightness_at(5.0, 0.0),
+            p.surface_brightness_at(3.0, 1.5),
+            p.surface_brightness_at(0.5, 1.5),
+            p.surface_brightness_at(4.0, 0.0),
         ];
 
         assert_eq!(astropy_values.len(), rust_values.len());
