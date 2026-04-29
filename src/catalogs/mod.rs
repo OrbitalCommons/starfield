@@ -12,6 +12,8 @@ pub mod hipparcos;
 pub mod minimal_catalog;
 #[cfg(feature = "photometry")]
 pub mod photometry;
+#[cfg(feature = "photometry")]
+pub mod radial_profile;
 pub mod synthetic;
 
 pub use features::{FeatureCatalog, FeatureType, SkyFeature};
@@ -20,6 +22,8 @@ pub use hipparcos::{HipparcosCatalog, HipparcosEntry};
 pub use minimal_catalog::{MinimalCatalog, MinimalStar, ProgressUpdate};
 #[cfg(feature = "photometry")]
 pub use photometry::{Band, Photometry};
+#[cfg(feature = "photometry")]
+pub use radial_profile::RadialProfile;
 pub use synthetic::{
     create_fov_catalog, create_synthetic_catalog, MagnitudeDistribution, SpatialDistribution,
     SyntheticCatalogConfig,
