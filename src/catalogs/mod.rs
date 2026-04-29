@@ -706,6 +706,120 @@ mod tests {
         }
     }
 
+    /// **Anchor for `gamma_lanczos` against integer factorials**:
+    /// `Γ(n) = (n - 1)!` for positive integer `n`. The integer
+    /// factorial sequence is the only ground-truth set we can write
+    /// down without an external reference library, so it's the most
+    /// honest anchor for the Lanczos approximation.
+    #[test]
+    fn test_gamma_lanczos_matches_factorial_for_integer_arguments() {
+        let factorials = [
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 2.0),
+            (4.0, 6.0),
+            (5.0, 24.0),
+            (6.0, 120.0),
+            (10.0, 362_880.0),
+        ];
+        for (x, expected) in factorials {
+            let g = super::gamma_lanczos(x);
+            let rel = (g - expected).abs() / expected;
+            assert!(
+                rel < 1e-10,
+                "Γ({x}) = {g}, expected {expected} (rel err {rel:.2e})"
+            );
+        }
+    }
+
+    /// Anchor for `gamma_lanczos(0.5) = √π`.
+    #[test]
+    fn test_gamma_lanczos_half_equals_sqrt_pi() {
+        let g = super::gamma_lanczos(0.5);
+        let expected = std::f64::consts::PI.sqrt();
+        let rel = (g - expected).abs() / expected;
+        assert!(rel < 1e-12, "Γ(0.5) = {g}, expected √π = {expected}");
+    }
+
+    /// **Physics anchor for `total_flux_per_ie`**: agrees with a
+    /// hand-written term-by-term expansion of Graham & Driver (2005)
+    /// Eq. 4–6 at the canonical de Vaucouleurs index n=4. Locks all
+    /// factors (2π, n, b_n^(-2n), Γ(2n), q · θ_eff², exp(b_n)).
+    #[test]
+    fn test_total_flux_per_ie_matches_hand_expansion_at_n_equals_4() {
+        let p = SersicProfile {
+            theta_half_arcsec: 3.0,
+            n: 4.0,
+            axis_ratio: 0.7,
+            position_angle_deg: 30.0,
+        };
+        let bn = p.b_n();
+        let gamma_2n = super::gamma_lanczos(8.0);
+        let expected =
+            2.0 * std::f64::consts::PI * 4.0 * bn.powf(-8.0) * gamma_2n * 0.7 * 9.0 * bn.exp();
+        let actual = p.total_flux_per_ie();
+        let rel = (actual - expected).abs() / expected;
+        assert!(rel < 1e-14, "K(actual)={actual} K(expected)={expected}");
+    }
+
+    /// **Round-trip flux normalisation**: pick `I_e`, compute
+    /// `F_total = K · I_e`, recover `I_e' = F_total / K`, check
+    /// equality. Locks the inverse-of-K relationship that
+    /// renderer code relies on.
+    #[test]
+    fn test_total_flux_per_ie_round_trips_ie_to_total_to_ie() {
+        for n in [1.0_f64, 2.0, 4.0, 6.0] {
+            for q in [1.0_f64, 0.7, 0.4] {
+                let p = SersicProfile {
+                    theta_half_arcsec: 4.5,
+                    n,
+                    axis_ratio: q,
+                    position_angle_deg: 17.0,
+                };
+                let i_e_in = 1234.5_f64;
+                let k = p.total_flux_per_ie();
+                let f_total = k * i_e_in;
+                let i_e_out = f_total / k;
+                assert!(
+                    (i_e_in - i_e_out).abs() < 1e-9,
+                    "round-trip I_e mismatch at n={n}, q={q}: in={i_e_in} out={i_e_out}"
+                );
+            }
+        }
+    }
+
+    /// **Anchor against the `exp(b_n)`-omission failure mode**: this
+    /// helper exists chiefly to keep the `exp(b_n)` factor out of
+    /// consumer copy-paste mistakes. If a future refactor accidentally
+    /// removes the `bn.exp()` term, this test fires before any
+    /// downstream photometry silently shifts by `exp(b_n) ≈ 2140` at
+    /// n=4.
+    #[test]
+    fn test_total_flux_per_ie_includes_exp_b_n_factor_at_n_equals_4() {
+        let p = SersicProfile {
+            theta_half_arcsec: 2.0,
+            n: 4.0,
+            axis_ratio: 1.0,
+            position_angle_deg: 0.0,
+        };
+        let bn = p.b_n();
+        let with_exp = p.total_flux_per_ie();
+        let without_exp =
+            2.0 * std::f64::consts::PI * 4.0 * bn.powf(-8.0) * super::gamma_lanczos(8.0) * 4.0; // θ_eff²
+        let ratio = with_exp / without_exp;
+        let rel = (ratio - bn.exp()).abs() / bn.exp();
+        assert!(
+            rel < 1e-12,
+            "with_exp / without_exp = {ratio}, expected exp(b_n) = {} (n=4)",
+            bn.exp()
+        );
+        assert!(
+            (2000.0..2300.0).contains(&bn.exp()),
+            "exp(b_n) at n=4 = {} expected to be ≈ 2140",
+            bn.exp()
+        );
+    }
+
     /// Live cross-check of [`SersicProfile::surface_brightness_at`] against
     /// `astropy.modeling.functional_models.Sersic2D` via the in-process
     /// Python bridge.
