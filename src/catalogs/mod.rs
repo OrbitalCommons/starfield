@@ -9,6 +9,8 @@ use crate::coordinates::Equatorial;
 pub mod features;
 mod gaia;
 pub mod hipparcos;
+#[cfg(feature = "photometry")]
+pub mod isophote_series;
 pub mod minimal_catalog;
 #[cfg(feature = "photometry")]
 pub mod photometry;
@@ -19,6 +21,8 @@ pub mod synthetic;
 pub use features::{FeatureCatalog, FeatureType, SkyFeature};
 pub use gaia::{GaiaCatalog, GaiaEntry};
 pub use hipparcos::{HipparcosCatalog, HipparcosEntry};
+#[cfg(feature = "photometry")]
+pub use isophote_series::{IsophoteSample, IsophoteSeries};
 pub use minimal_catalog::{MinimalCatalog, MinimalStar, ProgressUpdate};
 #[cfg(feature = "photometry")]
 pub use photometry::{Band, Photometry};
