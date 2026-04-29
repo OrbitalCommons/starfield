@@ -171,6 +171,80 @@ impl SersicProfile {
         let z = ((x_maj / a).powi(2) + (x_min / b).powi(2)).sqrt();
         (-bn * (z.powf(1.0 / self.n) - 1.0)).exp()
     }
+
+    /// Closed-form Sérsic luminosity coefficient `K` such that
+    /// `F_total = K · I_e`.
+    ///
+    /// ```text
+    /// K = 2π · n · b_n^(-2n) · Γ(2n) · q · θ_eff² · exp(b_n)
+    /// ```
+    ///
+    /// (Graham & Driver 2005, Eq. 4–6.) Converts a catalog's *total
+    /// integrated flux* to the `I_e` that
+    /// [`SersicProfile::surface_brightness_at`] is implicitly normalised
+    /// against:
+    ///
+    /// ```rust,ignore
+    /// let i_e = total_flux / profile.total_flux_per_ie();
+    /// let absolute_sb = i_e * profile.surface_brightness_at(dx, dy);
+    /// ```
+    ///
+    /// The `exp(b_n)` factor is the most easily-dropped piece of this
+    /// formula when re-deriving from the `I_e`-form Sérsic profile —
+    /// at n=4 (de Vaucouleurs) `exp(b_n) ≈ 2140`, so omitting it
+    /// under-counts the catalog flux by that factor. This helper
+    /// exists chiefly to keep that mistake out of consumer code.
+    ///
+    /// `Γ(2n)` is evaluated via a Lanczos g=7 approximation (relative
+    /// error < 1e-12 over `n ∈ [0.25, 50]`); the call is cheap to
+    /// invoke once per profile but should still be cached outside any
+    /// per-pixel inner loop.
+    pub fn total_flux_per_ie(&self) -> f64 {
+        let n = self.n;
+        let bn = self.b_n();
+        2.0 * std::f64::consts::PI
+            * n
+            * bn.powf(-2.0 * n)
+            * gamma_lanczos(2.0 * n)
+            * self.axis_ratio
+            * self.theta_half_arcsec
+            * self.theta_half_arcsec
+            * bn.exp()
+    }
+}
+
+/// Lanczos `g = 7` approximation to `Γ(x)`, valid for `x > 0`.
+/// Relative error below 1e-12 over `x ∈ [0.5, 100]`. Uses the standard
+/// reflection formula for `x < 0.5` to extend the domain — not strictly
+/// needed for the `2n` argument used by [`SersicProfile::total_flux_per_ie`]
+/// where `2n ≥ 1` for any physically reasonable Sérsic index, but cheap
+/// to keep and useful for the `n = 0.25` dwarf-irregular regime.
+fn gamma_lanczos(x: f64) -> f64 {
+    const G: f64 = 7.0;
+    // Coefficients reproduced from the canonical Lanczos g=7 derivation,
+    // truncated to f64 precision.
+    const COEF: [f64; 9] = [
+        0.999_999_999_999_810,
+        676.520_368_121_885_2,
+        -1_259.139_216_722_403,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_1,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_312e-7,
+    ];
+    if x < 0.5 {
+        std::f64::consts::PI / ((std::f64::consts::PI * x).sin() * gamma_lanczos(1.0 - x))
+    } else {
+        let x = x - 1.0;
+        let mut a = COEF[0];
+        for (i, c) in COEF.iter().enumerate().skip(1) {
+            a += c / (x + i as f64);
+        }
+        let t = x + G + 0.5;
+        (2.0 * std::f64::consts::PI).sqrt() * t.powf(x + 0.5) * (-t).exp() * a
+    }
 }
 
 /// Trait for catalog entries that may be spatially extended on the sky.
@@ -661,6 +735,120 @@ mod tests {
         for w in samples.windows(2) {
             assert!(w[0] > w[1], "expected monotonic decay, got {:?}", w);
         }
+    }
+
+    /// **Anchor for `gamma_lanczos` against integer factorials**:
+    /// `Γ(n) = (n - 1)!` for positive integer `n`. The integer
+    /// factorial sequence is the only ground-truth set we can write
+    /// down without an external reference library, so it's the most
+    /// honest anchor for the Lanczos approximation.
+    #[test]
+    fn test_gamma_lanczos_matches_factorial_for_integer_arguments() {
+        let factorials = [
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 2.0),
+            (4.0, 6.0),
+            (5.0, 24.0),
+            (6.0, 120.0),
+            (10.0, 362_880.0),
+        ];
+        for (x, expected) in factorials {
+            let g = super::gamma_lanczos(x);
+            let rel = (g - expected).abs() / expected;
+            assert!(
+                rel < 1e-10,
+                "Γ({x}) = {g}, expected {expected} (rel err {rel:.2e})"
+            );
+        }
+    }
+
+    /// Anchor for `gamma_lanczos(0.5) = √π`.
+    #[test]
+    fn test_gamma_lanczos_half_equals_sqrt_pi() {
+        let g = super::gamma_lanczos(0.5);
+        let expected = std::f64::consts::PI.sqrt();
+        let rel = (g - expected).abs() / expected;
+        assert!(rel < 1e-12, "Γ(0.5) = {g}, expected √π = {expected}");
+    }
+
+    /// **Physics anchor for `total_flux_per_ie`**: agrees with a
+    /// hand-written term-by-term expansion of Graham & Driver (2005)
+    /// Eq. 4–6 at the canonical de Vaucouleurs index n=4. Locks all
+    /// factors (2π, n, b_n^(-2n), Γ(2n), q · θ_eff², exp(b_n)).
+    #[test]
+    fn test_total_flux_per_ie_matches_hand_expansion_at_n_equals_4() {
+        let p = SersicProfile {
+            theta_half_arcsec: 3.0,
+            n: 4.0,
+            axis_ratio: 0.7,
+            position_angle_deg: 30.0,
+        };
+        let bn = p.b_n();
+        let gamma_2n = super::gamma_lanczos(8.0);
+        let expected =
+            2.0 * std::f64::consts::PI * 4.0 * bn.powf(-8.0) * gamma_2n * 0.7 * 9.0 * bn.exp();
+        let actual = p.total_flux_per_ie();
+        let rel = (actual - expected).abs() / expected;
+        assert!(rel < 1e-14, "K(actual)={actual} K(expected)={expected}");
+    }
+
+    /// **Round-trip flux normalisation**: pick `I_e`, compute
+    /// `F_total = K · I_e`, recover `I_e' = F_total / K`, check
+    /// equality. Locks the inverse-of-K relationship that
+    /// renderer code relies on.
+    #[test]
+    fn test_total_flux_per_ie_round_trips_ie_to_total_to_ie() {
+        for n in [1.0_f64, 2.0, 4.0, 6.0] {
+            for q in [1.0_f64, 0.7, 0.4] {
+                let p = SersicProfile {
+                    theta_half_arcsec: 4.5,
+                    n,
+                    axis_ratio: q,
+                    position_angle_deg: 17.0,
+                };
+                let i_e_in = 1234.5_f64;
+                let k = p.total_flux_per_ie();
+                let f_total = k * i_e_in;
+                let i_e_out = f_total / k;
+                assert!(
+                    (i_e_in - i_e_out).abs() < 1e-9,
+                    "round-trip I_e mismatch at n={n}, q={q}: in={i_e_in} out={i_e_out}"
+                );
+            }
+        }
+    }
+
+    /// **Anchor against the `exp(b_n)`-omission failure mode**: this
+    /// helper exists chiefly to keep the `exp(b_n)` factor out of
+    /// consumer copy-paste mistakes. If a future refactor accidentally
+    /// removes the `bn.exp()` term, this test fires before any
+    /// downstream photometry silently shifts by `exp(b_n) ≈ 2140` at
+    /// n=4.
+    #[test]
+    fn test_total_flux_per_ie_includes_exp_b_n_factor_at_n_equals_4() {
+        let p = SersicProfile {
+            theta_half_arcsec: 2.0,
+            n: 4.0,
+            axis_ratio: 1.0,
+            position_angle_deg: 0.0,
+        };
+        let bn = p.b_n();
+        let with_exp = p.total_flux_per_ie();
+        let without_exp =
+            2.0 * std::f64::consts::PI * 4.0 * bn.powf(-8.0) * super::gamma_lanczos(8.0) * 4.0; // θ_eff²
+        let ratio = with_exp / without_exp;
+        let rel = (ratio - bn.exp()).abs() / bn.exp();
+        assert!(
+            rel < 1e-12,
+            "with_exp / without_exp = {ratio}, expected exp(b_n) = {} (n=4)",
+            bn.exp()
+        );
+        assert!(
+            (2000.0..2300.0).contains(&bn.exp()),
+            "exp(b_n) at n=4 = {} expected to be ≈ 2140",
+            bn.exp()
+        );
     }
 
     /// Live cross-check of [`SersicProfile::surface_brightness_at`] against
