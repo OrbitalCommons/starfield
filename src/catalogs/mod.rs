@@ -124,6 +124,37 @@ impl SersicProfile {
     /// and `ellip_AstroPy = 1 − axis_ratio`. Multiply the returned
     /// value by the catalog's `I_e` to recover absolute surface
     /// brightness in physical units.
+    ///
+    /// # Converting total flux to `I_e`
+    ///
+    /// Most catalogs publish a *total integrated flux* `F_total` rather
+    /// than `I_e`. Derive `I_e` from the closed-form Sérsic luminosity
+    /// integral:
+    ///
+    /// ```text
+    /// F_total = 2π · n · b_n^(-2n) · Γ(2n) · q · θ_eff² · exp(b_n) · I_e
+    ///           ────────────────────────────────────────────────────
+    ///                                   K
+    ///
+    /// I_e = F_total / K
+    /// ```
+    ///
+    /// where `q = axis_ratio` and `θ_eff = theta_half_arcsec`.
+    ///
+    /// The `exp(b_n)` factor is easy to miss when re-deriving from
+    /// `surface_brightness_at`, because the SB form here is written
+    /// relative to `I_e` (`I(r) = I_e · exp[-b_n · ((r/θ_eff)^(1/n) − 1)]`)
+    /// rather than relative to the central surface brightness
+    /// `I_0 = I_e · exp(b_n)`. Forgetting it under-counts total flux by
+    /// `exp(b_n)`, which at `n = 4` (de Vaucouleurs) is ≈ 2140. The bug
+    /// is silent under any display stretch (asinh, percentile-clip,
+    /// etc.) but corrupts aperture photometry. See [#128] for a
+    /// companion convenience method.
+    ///
+    /// Reference: Graham & Driver (2005), "A concise reference to
+    /// projected Sérsic R^(1/n) quantities", PASA 22, 118, Eq. (4)–(6).
+    ///
+    /// [#128]: https://github.com/OrbitalCommons/starfield/issues/128
     pub fn surface_brightness_at(&self, dx_arcsec: f64, dy_arcsec: f64) -> f64 {
         let bn = self.b_n();
         let a = self.theta_half_arcsec;
