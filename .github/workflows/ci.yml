@@ -58,7 +58,7 @@ jobs:
 
       - name: Install Skyfield and AstroPy
         run: |
-          pip install "skyfield==$(cat .skyfield-version)" "astropy==$(cat .astropy-version)"
+          pip install "skyfield==$(cat .skyfield-version)" "astropy==$(cat .astropy-version)" scipy
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
