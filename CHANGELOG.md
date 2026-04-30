@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.1
+
+- Add `SersicProfile::total_flux_per_ie` helper for the `I_e` ↔ `F_total` conversion, with a built-in Lanczos g=7 `Γ` approximation (#128)
+- Document the `I_e`-from-total-flux derivation on `SersicProfile::surface_brightness_at`, calling out the easy-to-drop `exp(b_n)` factor (Graham & Driver 2005, Eq. 4–6) (#126)
+- Fix the position-angle convention translation in `SersicProfile::surface_brightness_at`'s docstring: `theta_AstroPy = 90° − position_angle_deg`, not `+ 90°`. The implementation was correct; only the docstring was wrong. Adds a regression test (#124)
+- Wire AstroPy into the `python-tests` bridge alongside Skyfield; cross-checks `surface_brightness_at` against `astropy.modeling.Sersic2D` live (#123)
+
 ## 0.12.0
 
 - Add `photometry` Cargo feature, off by default (#115, #116, #117)
