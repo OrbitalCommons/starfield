@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.4
+
+- `Time` is now `Send + Sync`. The lazy UT1 / TDB / delta-T caches were `Cell<Option<f64>>` (interior-mutable, single-threaded only); they're now `OnceLock<f64>`, which provides identical set-once cache semantics while making `Time` safe to share across threads. Unblocks embedding `Time` in `Arc<…>`-shared row structs (catalog records, indexes). Adds a compile-time `Send + Sync` assertion and a concurrent `tdb()` / `ut1()` / `delta_t()` consistency test as regression guards (#138).
+
 ## 0.12.3
 
 - Security cleanup. `cargo audit` count drops from **4 vulnerabilities + 5 warnings** to **0 vulnerabilities + 3 warnings**:
