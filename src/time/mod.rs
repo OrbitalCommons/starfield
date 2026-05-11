@@ -9,10 +9,9 @@ use crate::constants::{
 };
 use chrono::{self, DateTime, Datelike, Duration, Timelike, Utc};
 use nalgebra::Matrix3;
-use std::cell::Cell;
 use std::fmt;
 use std::ops::{Add, Sub};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 
 pub mod delta_t;
@@ -339,9 +338,9 @@ impl Timescale {
             whole: tai_jd,
             tt_fraction,
             tai_fraction: Some(tai_fraction),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: is_leap_second,
         };
@@ -451,9 +450,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(fraction),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -473,9 +472,9 @@ impl Timescale {
             whole,
             tt_fraction: frac + TT_MINUS_TAI,
             tai_fraction: Some(frac),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -493,9 +492,9 @@ impl Timescale {
             whole,
             tt_fraction: fraction,
             tai_fraction: Some(fraction - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -527,9 +526,9 @@ impl Timescale {
             whole,
             tt_fraction: tt_frac,
             tai_fraction: Some(tt_frac - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(Some(tdb_frac)),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: once_with(tdb_frac),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -549,9 +548,9 @@ impl Timescale {
             whole,
             tt_fraction: frac,
             tai_fraction: Some(frac - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -582,9 +581,9 @@ impl Timescale {
             whole,
             tt_fraction: tt_frac,
             tai_fraction: Some(tt_frac - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(None),
-            tdb_fraction: Cell::new(Some(tdb_frac)),
-            delta_t: Cell::new(None),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: once_with(tdb_frac),
+            delta_t: OnceLock::new(),
             shape: None,
             leap_second: false,
         }
@@ -627,9 +626,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(tt_fraction - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(Some(ut1_fraction)),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(Some(delta_t_better)),
+            ut1_fraction: once_with(ut1_fraction),
+            tdb_fraction: OnceLock::new(),
+            delta_t: once_with(delta_t_better),
             shape: None,
             leap_second: false,
         }
@@ -660,9 +659,9 @@ impl Timescale {
             whole,
             tt_fraction,
             tai_fraction: Some(tt_fraction - TT_MINUS_TAI),
-            ut1_fraction: Cell::new(Some(ut1_fraction)),
-            tdb_fraction: Cell::new(None),
-            delta_t: Cell::new(Some(delta_t_better)),
+            ut1_fraction: once_with(ut1_fraction),
+            tdb_fraction: OnceLock::new(),
+            delta_t: once_with(delta_t_better),
             shape: None,
             leap_second: false,
         }
@@ -880,9 +879,9 @@ impl Timescale {
                 whole,
                 tt_fraction: fraction,
                 tai_fraction: Some(fraction - TT_MINUS_TAI),
-                ut1_fraction: Cell::new(None),
-                tdb_fraction: Cell::new(None),
-                delta_t: Cell::new(None),
+                ut1_fraction: OnceLock::new(),
+                tdb_fraction: OnceLock::new(),
+                delta_t: OnceLock::new(),
                 shape: None,
                 leap_second: false,
             });
@@ -917,6 +916,18 @@ impl From<(i32, u32, u32)> for CalendarInput {
     }
 }
 
+/// Build a `OnceLock<f64>` already containing `value`. Used at
+/// construction sites where one of the lazy fields is computed
+/// eagerly (e.g. `Timescale::ut1_jd` knows the UT1 fraction at
+/// construction time, so there's no point making first-access pay
+/// for it).
+fn once_with(value: f64) -> OnceLock<f64> {
+    let lock = OnceLock::new();
+    // The lock is fresh — `set` cannot fail.
+    let _ = lock.set(value);
+    lock
+}
+
 /// Represents astronomical time with high precision
 ///
 /// Derived time scale values (TDB, UT1, delta-T) are lazily computed
@@ -931,12 +942,16 @@ pub struct Time {
     tt_fraction: f64,
     /// TAI fraction of day (if known)
     tai_fraction: Option<f64>,
-    /// UT1 fraction of day (cached on first access)
-    ut1_fraction: Cell<Option<f64>>,
-    /// TDB fraction of day (cached on first access)
-    tdb_fraction: Cell<Option<f64>>,
-    /// Delta-T in seconds (cached on first access)
-    delta_t: Cell<Option<f64>>,
+    /// UT1 fraction of day (cached on first access).
+    ///
+    /// `OnceLock` rather than `Cell<Option<f64>>` so `Time` is `Sync` —
+    /// downstream consumers want to embed `Time` in `Arc<...>`-shared
+    /// row structs across solver threads (see #138).
+    ut1_fraction: OnceLock<f64>,
+    /// TDB fraction of day (cached on first access).
+    tdb_fraction: OnceLock<f64>,
+    /// Delta-T in seconds (cached on first access).
+    delta_t: OnceLock<f64>,
     /// Shape for array operations (None for scalar)
     shape: Option<Vec<usize>>,
     /// Whether this time falls during a UTC leap second (second=60)
@@ -1199,15 +1214,12 @@ impl Time {
     ///
     /// The TDB fraction is cached on first computation.
     pub fn tdb(&self) -> f64 {
-        if let Some(tdb_fraction) = self.tdb_fraction.get() {
-            self.whole + tdb_fraction
-        } else {
+        let tdb_frac = *self.tdb_fraction.get_or_init(|| {
             let tt = self.tt();
             let tdb_correction = self.tdb_minus_tt(tt) / DAY_S;
-            let tdb_frac = self.tt_fraction + tdb_correction;
-            self.tdb_fraction.set(Some(tdb_frac));
-            self.whole + tdb_frac
-        }
+            self.tt_fraction + tdb_correction
+        });
+        self.whole + tdb_frac
     }
 
     /// Calculate TDB - TT difference in seconds
@@ -1228,26 +1240,17 @@ impl Time {
     ///
     /// The UT1 fraction is cached on first computation.
     pub fn ut1(&self) -> f64 {
-        if let Some(ut1_fraction) = self.ut1_fraction.get() {
-            self.whole + ut1_fraction
-        } else {
-            let ut1_frac = self.tt_fraction - self.delta_t() / DAY_S;
-            self.ut1_fraction.set(Some(ut1_frac));
-            self.whole + ut1_frac
-        }
+        let ut1_frac = *self
+            .ut1_fraction
+            .get_or_init(|| self.tt_fraction - self.delta_t() / DAY_S);
+        self.whole + ut1_frac
     }
 
     /// Get Delta-T in seconds (TT - UT1)
     ///
     /// Cached on first computation.
     pub fn delta_t(&self) -> f64 {
-        if let Some(delta_t) = self.delta_t.get() {
-            delta_t
-        } else {
-            let dt = self.ts.delta_t(self.tt());
-            self.delta_t.set(Some(dt));
-            dt
-        }
+        *self.delta_t.get_or_init(|| self.ts.delta_t(self.tt()))
     }
 
     /// Get DUT1 in seconds (UT1 - UTC)
@@ -1452,9 +1455,15 @@ impl Add<f64> for Time {
             whole: self.whole + whole_days,
             tt_fraction: self.tt_fraction + fraction,
             tai_fraction: self.tai_fraction.map(|f| f + fraction),
-            ut1_fraction: Cell::new(self.ut1_fraction.get().map(|f| f + fraction)),
-            tdb_fraction: Cell::new(self.tdb_fraction.get().map(|f| f + fraction)),
-            delta_t: Cell::new(None), // Recalculate when needed
+            ut1_fraction: self
+                .ut1_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
+            tdb_fraction: self
+                .tdb_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
+            delta_t: OnceLock::new(), // Recalculate when needed
             shape: self.shape,
             leap_second: false,
         }
@@ -1485,9 +1494,15 @@ impl Sub<f64> for Time {
             whole: self.whole - whole_days,
             tt_fraction: self.tt_fraction - fraction,
             tai_fraction: self.tai_fraction.map(|f| f - fraction),
-            ut1_fraction: Cell::new(self.ut1_fraction.get().map(|f| f - fraction)),
-            tdb_fraction: Cell::new(self.tdb_fraction.get().map(|f| f - fraction)),
-            delta_t: Cell::new(None), // Recalculate when needed
+            ut1_fraction: self
+                .ut1_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f - fraction)),
+            tdb_fraction: self
+                .tdb_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f - fraction)),
+            delta_t: OnceLock::new(), // Recalculate when needed
             shape: self.shape,
             leap_second: false,
         }
@@ -1587,6 +1602,49 @@ mod tests {
     /// fires before downstream `IndexStar`-shaped consumers find out
     /// the hard way (megabytes of unintended duplication).
     #[test]
+    /// Compile-time check that `Time` (and `Timescale`) are `Send + Sync`.
+    /// Regression guard for #138 — downstream consumers want to embed
+    /// `Time` in `Arc<…>`-shared row structs (e.g. zodiacal's
+    /// `IndexStar` under `Arc<Index>`, read concurrently by many
+    /// solver threads). Before this change `Time` was `!Sync` because
+    /// the lazy UT1 / TDB / delta-T caches were `Cell<Option<f64>>`,
+    /// which is interior-mutable through `&` and therefore single-
+    /// threaded only. Replacing them with `OnceLock<f64>` keeps the
+    /// set-once cache semantics while making `Time` thread-shareable.
+    ///
+    /// If anyone re-introduces a non-`Sync` field (`Cell`, `RefCell`,
+    /// `*const T`, `Rc`, …) on `Time` or `Timescale`, this test
+    /// fails at compile time before it can break downstream
+    /// `Send + Sync`-bounded code.
+    #[test]
+    fn test_time_and_timescale_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Time>();
+        assert_send_sync::<Timescale>();
+    }
+
+    /// Concurrent `tdb()` / `ut1()` / `delta_t()` calls on a shared
+    /// `Time` must return the same cached value regardless of which
+    /// thread won the race to initialise the `OnceLock`. This is
+    /// the behavioural complement to `test_time_and_timescale_are_send_sync`:
+    /// the former proves we can share `Time`; this one proves the
+    /// shared state behaves correctly under contention.
+    #[test]
+    fn test_time_lazy_caches_are_consistent_across_threads() {
+        let ts = Timescale::default();
+        let t = std::sync::Arc::new(ts.tt_jd(2_451_545.0, None));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let t = std::sync::Arc::clone(&t);
+            handles.push(std::thread::spawn(move || (t.tdb(), t.ut1(), t.delta_t())));
+        }
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let first = results[0];
+        for r in &results[1..] {
+            assert_eq!(*r, first);
+        }
+    }
+
     fn test_time_shares_timescale_via_arc_after_clone() {
         let ts = Timescale::default();
         let t1 = ts.tt_jd(2_451_545.0, None);
