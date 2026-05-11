@@ -106,6 +106,49 @@ impl From<Equatorial> for [f64; 2] {
     }
 }
 
+/// Linear proper motion of a catalog source, in mas/yr.
+///
+/// Gaia DR3 convention: `pmra` is a true on-sky rate that already has
+/// the `cos(dec)` factor folded in, **not** the bare coordinate rate
+/// `dRA/dt`. `pmdec` is a plain Dec coordinate rate. Downstream code
+/// that propagates a position by `Δt` years should add
+/// `pmra * Δt / cos(dec) / 3.6e6` degrees to RA and
+/// `pmdec * Δt / 3.6e6` degrees to Dec.
+///
+/// Lives next to [`Equatorial`] because it is the natural typed
+/// companion to a `(ra, dec)` position — many catalog rows pair the
+/// two, and consumers that pass naked `(pmra: f64, pmdec: f64)` pairs
+/// across module boundaries routinely bury the cos(dec) convention in
+/// doc-comments and get it wrong.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ProperMotion {
+    /// RA proper motion, mas/yr, with cos(dec) folded in (Gaia
+    /// `pmra` convention).
+    pub pmra: f64,
+    /// Dec proper motion, mas/yr (Gaia `pmdec` convention).
+    pub pmdec: f64,
+}
+
+impl ProperMotion {
+    /// Zero proper motion — useful default for synthetic / mocked
+    /// sources, or for catalog rows where the PM fit failed.
+    pub const ZERO: ProperMotion = ProperMotion {
+        pmra: 0.0,
+        pmdec: 0.0,
+    };
+
+    pub fn new(pmra: f64, pmdec: f64) -> Self {
+        ProperMotion { pmra, pmdec }
+    }
+
+    /// Magnitude of the proper-motion vector on the sky, mas/yr.
+    /// Includes the cos(dec) factor automatically because `pmra`
+    /// already does.
+    pub fn magnitude(&self) -> f64 {
+        (self.pmra * self.pmra + self.pmdec * self.pmdec).sqrt()
+    }
+}
+
 // Ecliptic coordinates
 #[derive(Debug, Clone, Copy)]
 pub struct Ecliptic {
@@ -238,6 +281,36 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use std::f64::consts::PI;
+
+    #[test]
+    fn proper_motion_zero_constant_has_both_components_zero() {
+        let pm = ProperMotion::ZERO;
+        assert_eq!(pm.pmra, 0.0);
+        assert_eq!(pm.pmdec, 0.0);
+        assert_eq!(pm.magnitude(), 0.0);
+    }
+
+    #[test]
+    fn proper_motion_new_round_trips_components() {
+        let pm = ProperMotion::new(-4.6, 11.2);
+        assert_eq!(pm.pmra, -4.6);
+        assert_eq!(pm.pmdec, 11.2);
+    }
+
+    #[test]
+    fn proper_motion_magnitude_is_quadrature_sum() {
+        // 3-4-5 triangle in mas/yr.
+        let pm = ProperMotion::new(3.0, 4.0);
+        assert_relative_eq!(pm.magnitude(), 5.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn proper_motion_serde_round_trips() {
+        let pm = ProperMotion::new(1.25, -3.75);
+        let json = serde_json::to_string(&pm).unwrap();
+        let back: ProperMotion = serde_json::from_str(&json).unwrap();
+        assert_eq!(pm, back);
+    }
 
     #[test]
     fn test_equatorial_to_cartesian_roundtrip() {

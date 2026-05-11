@@ -41,7 +41,7 @@ pub mod toposlib;
 pub mod units;
 
 // Re-export commonly used types
-pub use coordinates::Equatorial;
+pub use coordinates::{Equatorial, ProperMotion};
 pub use time::{CalendarTuple, Time, Timescale};
 
 /// Main error type for the starfield library
