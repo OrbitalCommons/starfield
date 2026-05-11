@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.3
+
+- Security cleanup. `cargo audit` count drops from **4 vulnerabilities + 5 warnings** to **0 vulnerabilities + 3 warnings**:
+  - Update `rustls-webpki` 0.103.10 → 0.103.13 — clears three vulnerabilities (CRL panic, wildcard / URI name-constraint bypasses) via transitive bump in the `reqwest` chain.
+  - Disable default features on `image`, enable only `png` + `jpeg` — prunes the `rav1e → {core2, rand 0.9, paste}` AVIF subtree that triggered three unmaintained-crate warnings. AVIF decode/encode is no longer available through `starfield`; consumers can enable it on their own `image` dep.
+  - Bump `pyo3` 0.19 → 0.24 and `numpy` 0.19 → 0.24 — clears `RUSTSEC-2025-0020` (`PyString::from_object` buffer overflow), affected only the `python-tests` dev feature. Bridge migrated to `Bound<'py, T>` / `&CStr` / `bind()` shapes.
+
 ## 0.12.2
 
 - `Timescale` now wraps `Arc<TimescaleInner>` internally so cloning a `Timescale` (or a `Time` that holds one) is a refcount bump rather than a deep copy of the delta-T / leap-second / polar-motion tables. Unblocks embedding `Time` as a field in row-like structures (catalog records, indexes). `set_polar_motion_table` uses `Arc::make_mut` for copy-on-write so pre-existing `Time`s see the pre-mutation table (#134).

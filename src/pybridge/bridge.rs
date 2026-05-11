@@ -5,9 +5,11 @@
 
 use crate::pybridge::helpers::BridgeError;
 use pyo3::{
+    ffi::c_str,
     prelude::*,
-    types::{PyDict, PyList},
+    types::{PyAnyMethods, PyDict, PyList},
 };
+use std::ffi::CString;
 
 /// Python-Rust bridge for testing against the Python Skyfield implementation
 pub struct PyRustBridge {
@@ -40,15 +42,20 @@ impl PyRustBridge {
     /// Run Python code and return the result as a JSON value
     pub fn run_py_to_json(&self, code: &str) -> Result<String, BridgeError> {
         Python::with_gil(|py| {
-            let globals = self.py_globals.as_ref(py);
+            let globals = self.py_globals.bind(py);
 
             // load the helper code
             let helper_code = get_helper_code();
 
-            let get_result_code = "_result = rust.get_result()";
+            let get_result_code = c_str!("_result = rust.get_result()");
 
-            for code_block in [helper_code, code, get_result_code] {
-                println!("Running code block: \n{}", code_block);
+            // pyo3 0.24's `Python::run` takes `&CStr` rather than `&str` so
+            // pre-converted constants live longer than any temporary.
+            let helper_c = CString::new(helper_code).expect("helper.py contains a NUL byte");
+            let code_c = CString::new(code).expect("user-provided code contains a NUL byte");
+
+            for code_block in [helper_c.as_c_str(), code_c.as_c_str(), get_result_code] {
+                println!("Running code block: \n{}", code_block.to_string_lossy());
                 match py.run(code_block, Some(globals), None) {
                     Ok(_) => {}
                     Err(e) => {
@@ -60,7 +67,7 @@ impl PyRustBridge {
             }
 
             // Check if there's a result variable defined
-            match globals.get_item("_result") {
+            match globals.get_item("_result")? {
                 Some(value) => {
                     if let Ok(value) = value.extract::<String>() {
                         Ok(value)
@@ -82,7 +89,10 @@ impl PyRustBridge {
 fn format_py_error(py: Python, error: &PyErr) -> String {
     // Get exception type and message
     let exc_type = error.get_type(py);
-    let exc_name = exc_type.name().unwrap_or("Unknown");
+    let exc_name = match exc_type.name() {
+        Ok(name) => name.to_string(),
+        Err(_) => String::from("Unknown"),
+    };
 
     // Get value and traceback as strings if available
     let value = match error.value(py).str() {
