@@ -1,7 +1,7 @@
 pub mod cartesian;
 
-// Re-export the Equatorial coordinate system from framelib
-pub use crate::framelib::inertial::Equatorial;
+// Re-export the Equatorial coordinate system + ProperMotion companion from framelib
+pub use crate::framelib::inertial::{Equatorial, ProperMotion};
 
 #[cfg(test)]
 mod tests {
