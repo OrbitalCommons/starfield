@@ -12,6 +12,7 @@ use nalgebra::Matrix3;
 use std::cell::Cell;
 use std::fmt;
 use std::ops::{Add, Sub};
+use std::sync::Arc;
 use thiserror::Error;
 
 pub mod delta_t;
@@ -52,9 +53,22 @@ pub struct CalendarTuple {
     pub second: f64,
 }
 
-/// Represents a time scale for astronomical calculations
+/// Represents a time scale for astronomical calculations.
+///
+/// Cheap to clone: internally an `Arc<TimescaleInner>` so cloning a
+/// `Timescale` (or a `Time` that holds one) is a refcount bump rather
+/// than a deep copy of the delta-T / leap-second / polar-motion tables.
+/// This makes embedding `Time` in row-like structures (catalog records,
+/// indexes) practical — see #134.
 #[derive(Debug, Clone)]
-pub struct Timescale {
+pub struct Timescale(Arc<TimescaleInner>);
+
+/// Inner state shared across all clones of a `Timescale`. Field access
+/// goes through `self.0.<field>` on the outer newtype. The two
+/// initialization helpers are methods here so the construction path
+/// can mutate before the `Arc` wrap.
+#[derive(Debug, Clone)]
+struct TimescaleInner {
     /// Delta T table with TT times
     delta_t_table: Option<(Vec<f64>, Vec<f64>)>,
     /// Spline-based delta-T evaluator (Table S15.2020 + long-term parabola)
@@ -74,7 +88,7 @@ pub struct Timescale {
 impl Default for Timescale {
     fn default() -> Self {
         // Create a basic timescale with minimal data
-        let mut ts = Self {
+        let mut inner = TimescaleInner {
             delta_t_table: None,
             delta_t_spline: delta_t::DeltaT::new(),
             leap_dates: Vec::new(),
@@ -87,8 +101,8 @@ impl Default for Timescale {
 
         // Initialize with basic leap second data (just enough to work)
         // This would normally be loaded from a file or other source
-        ts.init_basic_leap_seconds();
-        ts
+        inner.init_basic_leap_seconds();
+        Timescale(Arc::new(inner))
     }
 }
 
@@ -100,7 +114,7 @@ impl Timescale {
         leap_offsets: Vec<i32>,
         julian_calendar_cutoff: Option<i32>,
     ) -> Self {
-        let mut ts = Self {
+        let mut inner = TimescaleInner {
             delta_t_table,
             delta_t_spline: delta_t::DeltaT::new(),
             leap_dates,
@@ -112,8 +126,8 @@ impl Timescale {
         };
 
         // Initialize the leap second conversion tables
-        ts.init_leap_second_tables();
-        ts
+        inner.init_leap_second_tables();
+        Timescale(Arc::new(inner))
     }
 
     /// Install a polar motion table for IERS corrections.
@@ -122,20 +136,27 @@ impl Timescale {
     /// - `tt_jd`: TT Julian dates
     /// - `x_arcsec`: Polar motion X component in arcseconds
     /// - `y_arcsec`: Polar motion Y component in arcseconds
+    ///
+    /// Uses copy-on-write semantics: if other `Timescale`/`Time`
+    /// instances are sharing this inner, the inner is cloned before
+    /// being mutated, leaving existing handles seeing the
+    /// pre-mutation table.
     pub fn set_polar_motion_table(
         &mut self,
         tt_jd: Vec<f64>,
         x_arcsec: Vec<f64>,
         y_arcsec: Vec<f64>,
     ) {
-        self.polar_motion_table = Some((tt_jd, x_arcsec, y_arcsec));
+        Arc::make_mut(&mut self.0).polar_motion_table = Some((tt_jd, x_arcsec, y_arcsec));
     }
 
     /// Check whether a polar motion table has been loaded
     pub fn has_polar_motion(&self) -> bool {
-        self.polar_motion_table.is_some()
+        self.0.polar_motion_table.is_some()
     }
+}
 
+impl TimescaleInner {
     /// Initialize basic leap second data
     fn init_basic_leap_seconds(&mut self) {
         // This is a simplified set of leap seconds
@@ -265,7 +286,9 @@ impl Timescale {
         self.leap_utc = Some(leap_utc);
         self.leap_tai = Some(leap_tai);
     }
+}
 
+impl Timescale {
     /// Get the current time
     pub fn now(&self) -> Time {
         self.from_datetime(Utc::now())
@@ -385,7 +408,7 @@ impl Timescale {
 
     /// Get the leap second offset for a given UTC time in seconds
     fn get_leap_offset(&self, utc_seconds: f64) -> f64 {
-        if let (Some(leap_utc), Some(leap_tai)) = (&self.leap_utc, &self.leap_tai) {
+        if let (Some(leap_utc), Some(leap_tai)) = (&self.0.leap_utc, &self.0.leap_tai) {
             if leap_utc.is_empty() || leap_tai.is_empty() {
                 return 0.0;
             }
@@ -652,12 +675,12 @@ impl Timescale {
     /// Morrison-Hohenkerk 2016 long-term parabola for dates outside that range.
     /// If a custom delta-T table was provided, it takes precedence.
     pub fn delta_t(&self, tt: f64) -> f64 {
-        if let Some((table_tt, table_delta_t)) = &self.delta_t_table {
+        if let Some((table_tt, table_delta_t)) = &self.0.delta_t_table {
             // Interpolate from custom table if available
             Self::interpolate(tt, table_tt, table_delta_t, f64::NAN, f64::NAN)
         } else {
             // Use spline-based computation (Table S15.2020 + long-term parabola)
-            self.delta_t_spline.compute(tt)
+            self.0.delta_t_spline.compute(tt)
         }
     }
 
@@ -791,7 +814,7 @@ impl Timescale {
         let mut j = e + (153 * f as i32 + 2) / 5;
 
         // Check if we're using the Gregorian calendar
-        let use_gregorian = match self.julian_calendar_cutoff {
+        let use_gregorian = match self.0.julian_calendar_cutoff {
             Some(cutoff) => j >= cutoff,
             None => true, // Use Gregorian calendar for all dates if no cutoff specified
         };
@@ -810,7 +833,7 @@ impl Timescale {
     /// which is also used by Skyfield.
     pub fn julian_day_to_calendar_date(&self, jd: i32) -> (i32, u32, u32) {
         // Check if we're using the Gregorian or Julian calendar
-        let use_gregorian = match self.julian_calendar_cutoff {
+        let use_gregorian = match self.0.julian_calendar_cutoff {
             Some(cutoff) => jd >= cutoff,
             None => true, // Use Gregorian for all dates if no cutoff
         };
@@ -993,8 +1016,8 @@ impl Time {
 
         // Convert TAI to UTC by removing leap seconds
         // This is approximate and would need a full leap second table for accuracy
-        if let Some(leap_tai) = &self.ts.leap_tai {
-            if let Some(leap_utc) = &self.ts.leap_utc {
+        if let Some(leap_tai) = &self.ts.0.leap_tai {
+            if let Some(leap_utc) = &self.ts.0.leap_utc {
                 let tai_seconds = tai_jd * DAY_S;
 
                 // Find appropriate offset
@@ -1238,8 +1261,8 @@ impl Time {
     /// Searches the leap second table for the appropriate offset at this time.
     pub fn leap_seconds(&self) -> f64 {
         let tt_jd = self.tt();
-        let leap_dates = &self.ts.leap_dates;
-        let leap_offsets = &self.ts.leap_offsets;
+        let leap_dates = &self.ts.0.leap_dates;
+        let leap_offsets = &self.ts.0.leap_offsets;
 
         if leap_dates.is_empty() {
             return 0.0;
@@ -1310,7 +1333,7 @@ impl Time {
     /// If no polar motion table is loaded, returns (0, 0, 0).
     /// Otherwise computes s_prime from TDB and interpolates x, y from the table.
     pub fn polar_motion_angles(&self) -> (f64, f64, f64) {
-        if let Some((tt_dates, x_vals, y_vals)) = &self.ts.polar_motion_table {
+        if let Some((tt_dates, x_vals, y_vals)) = &self.ts.0.polar_motion_table {
             let s_prime = -47.0e-6 * (self.tdb() - J2000) / 36525.0;
             let tt = self.tt();
             let x = linear_interpolate(tt_dates, x_vals, tt);
@@ -1353,7 +1376,7 @@ impl Time {
 
         let base = r * self.m_matrix();
 
-        if self.ts.polar_motion_table.is_some() {
+        if self.ts.0.polar_motion_table.is_some() {
             self.polar_motion_matrix() * base
         } else {
             base
@@ -1556,6 +1579,56 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use chrono::TimeZone;
+
+    /// Regression guard for #134: every `Time` produced by a given
+    /// `Timescale` must share the underlying delta-T / leap-second
+    /// tables via `Arc`, not deep-copy them. If a future refactor
+    /// drops the `Arc` and goes back to inline `Timescale`, this test
+    /// fires before downstream `IndexStar`-shaped consumers find out
+    /// the hard way (megabytes of unintended duplication).
+    #[test]
+    fn test_time_shares_timescale_via_arc_after_clone() {
+        let ts = Timescale::default();
+        let t1 = ts.tt_jd(2_451_545.0, None);
+        let t2 = ts.tt_jd(2_451_546.0, None);
+        let t3 = t1.clone();
+        // All four Timescale handles (the constructor and three Times)
+        // must point at the same Arc'd inner. Pointer-identity, not
+        // value-equality — the test fails if any deep-cloning sneaks
+        // back in.
+        let p_ts = Arc::as_ptr(&ts.0);
+        assert_eq!(p_ts, Arc::as_ptr(&t1.ts.0));
+        assert_eq!(p_ts, Arc::as_ptr(&t2.ts.0));
+        assert_eq!(p_ts, Arc::as_ptr(&t3.ts.0));
+        // And `Time` itself stays cheap-to-clone (≤ ~200 bytes) — the
+        // size assertion is informational; if it grows unexpectedly,
+        // re-evaluate whether a new field warrants its weight.
+        assert!(
+            std::mem::size_of::<Time>() <= 200,
+            "Time grew to {} bytes — review whether the new field belongs inline",
+            std::mem::size_of::<Time>()
+        );
+    }
+
+    /// `set_polar_motion_table` must not mutate `Time`s already
+    /// produced by the source `Timescale` — `Arc::make_mut` gives us
+    /// copy-on-write semantics, so existing handles keep their
+    /// pre-mutation view.
+    #[test]
+    fn test_set_polar_motion_table_does_not_disturb_prior_times() {
+        let mut ts = Timescale::default();
+        let before = ts.tt_jd(2_451_545.0, None);
+        assert!(!ts.has_polar_motion());
+        assert!(before.ts.0.polar_motion_table.is_none());
+
+        ts.set_polar_motion_table(vec![2_451_545.0], vec![0.05], vec![0.30]);
+
+        // `ts` now sees the new table…
+        assert!(ts.has_polar_motion());
+        // …but the previously-produced `before` Time still sees the
+        // pre-mutation state.
+        assert!(before.ts.0.polar_motion_table.is_none());
+    }
 
     #[test]
     fn test_time_creation() {

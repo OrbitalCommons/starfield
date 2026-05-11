@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2
+
+- `Timescale` now wraps `Arc<TimescaleInner>` internally so cloning a `Timescale` (or a `Time` that holds one) is a refcount bump rather than a deep copy of the delta-T / leap-second / polar-motion tables. Unblocks embedding `Time` as a field in row-like structures (catalog records, indexes). `set_polar_motion_table` uses `Arc::make_mut` for copy-on-write so pre-existing `Time`s see the pre-mutation table (#134).
+
 ## 0.12.1
 
 - Add `SersicProfile::total_flux_per_ie` helper for the `I_e` ↔ `F_total` conversion, with a built-in Lanczos g=7 `Γ` approximation (#128)
