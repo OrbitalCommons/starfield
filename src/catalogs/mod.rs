@@ -65,7 +65,7 @@ pub trait StarPosition {
 /// Common Sérsic indices: `n = 0.5` is Gaussian, `n = 1` is exponential
 /// (typical late-type disks), `n = 4` is the de Vaucouleurs profile
 /// (typical early-type bulges).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SersicProfile {
     /// Half-light radius along the major axis, in arcseconds.
     pub theta_half_arcsec: f64,
@@ -274,7 +274,7 @@ impl ExtendedSource for StarData {}
 
 /// Common star properties that all catalog entries must provide
 /// This represents the minimal set of properties required for rendering and calculations
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct StarData {
     /// Star identifier
     pub id: u64,
@@ -577,6 +577,27 @@ mod tests {
         assert_eq!(p.n, 4.0);
         assert_eq!(p.axis_ratio, 0.7);
         assert_eq!(p.position_angle_deg, 32.0);
+    }
+
+    #[test]
+    fn test_catalog_primitives_serde_round_trip() {
+        let profile = SersicProfile {
+            theta_half_arcsec: 3.5,
+            n: 4.0,
+            axis_ratio: 0.7,
+            position_angle_deg: 32.0,
+        };
+        let profile_json = serde_json::to_string(&profile).unwrap();
+        let decoded_profile: SersicProfile = serde_json::from_str(&profile_json).unwrap();
+        assert_eq!(decoded_profile, profile);
+
+        let star = StarData::new(42, 12.34, 56.78, 9.0, Some(0.6));
+        let star_json = serde_json::to_string(&star).unwrap();
+        let decoded_star: StarData = serde_json::from_str(&star_json).unwrap();
+        assert_eq!(decoded_star.id, star.id);
+        assert_eq!(decoded_star.position, star.position);
+        assert_eq!(decoded_star.magnitude, star.magnitude);
+        assert_eq!(decoded_star.b_v, star.b_v);
     }
 
     fn sersic_profile(n: f64, axis_ratio: f64, position_angle_deg: f64) -> SersicProfile {
