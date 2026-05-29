@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.6
+
+- Add serde derives for `SersicProfile` and `StarData` so downstream consumers can serialize catalog primitives directly (#143)
+- Add `AGENTS.md` as a symlink to `CLAUDE.md` so agent instructions are available under both expected names (#144)
+
 ## 0.12.5
 
 - Add `ProperMotion { pmra, pmdec }` struct (mas/yr, Gaia DR3 convention: `pmra` carries cos(dec), `pmdec` is a plain Dec rate). Lives in `framelib::inertial` next to `Equatorial`; re-exported through `coordinates` and the crate root so callers write `starfield::ProperMotion`. Includes `ZERO` const, `new()`, `magnitude()`, serde derives (#136)
