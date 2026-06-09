@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.0
+
+- Upgrade `ndarray` 0.16 → 0.17 (#148). Semver-incompatible for consumers of starfield's ndarray-typed catalog/`StarData` APIs, hence a minor bump.
+- Drop the unused `numpy` Rust crate dependency so the whole package — including the `python-tests` feature — resolves to a single ndarray 0.17 (it was the last pin holding 0.16). Python-side numpy is unaffected; it is reached via the pybridge.
+
 ## 0.12.6
 
 - Add serde derives for `SersicProfile` and `StarData` so downstream consumers can serialize catalog primitives directly (#143)
