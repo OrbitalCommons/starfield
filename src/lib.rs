@@ -36,6 +36,7 @@ pub mod sbdb;
 pub mod searchlib;
 pub mod sgp4lib;
 pub mod starlib;
+pub mod statslib;
 pub mod time;
 pub mod toposlib;
 pub mod units;
