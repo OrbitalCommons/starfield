@@ -3,6 +3,11 @@
 //! Implements the Mallama & Hilton (2018) formulas for computing apparent
 //! visual magnitudes of planets, matching Skyfield's `magnitudelib`.
 //!
+//! For bodies *without* an empirical Mallama-Hilton model — asteroids, TNOs,
+//! and hypothetical planets — see the [`small_body`] submodule, which builds
+//! the magnitude from physical first principles (mass-radius relation,
+//! geometric albedo, reflected-light distance law, IAU H-G phase function).
+//!
 //! # Example
 //!
 //! ```ignore
@@ -15,6 +20,12 @@
 
 #[cfg(all(test, feature = "python-tests"))]
 mod python_tests;
+pub mod small_body;
+
+pub use small_body::{
+    absolute_magnitude, apparent_magnitude, apparent_magnitude_with_phase, hg_phase_factor,
+    mass_radius_neptunian, phase_angle, phase_integral, planet_apparent_magnitude, DEFAULT_SLOPE_G,
+};
 
 use nalgebra::Vector3;
 
