@@ -28,6 +28,7 @@ pub use minimal_catalog::{MinimalCatalog, MinimalStar, ProgressUpdate};
 pub use photometry::{Band, Photometry};
 #[cfg(feature = "photometry")]
 pub use radial_profile::RadialProfile;
+pub use synthetic::orbits::{InclinationModel, SyntheticOrbit, SyntheticOrbitPopulation};
 pub use synthetic::{
     create_fov_catalog, create_synthetic_catalog, MagnitudeDistribution, SpatialDistribution,
     SyntheticCatalogConfig,

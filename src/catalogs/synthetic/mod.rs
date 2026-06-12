@@ -4,6 +4,11 @@
 //! for testing and development purposes. It uses statistical models of actual
 //! stellar magnitude and spatial distributions to create catalogs that
 //! approximate real-world astronomical data.
+//!
+//! The [`orbits`] submodule provides the small-body counterpart: seeded
+//! synthetic populations of heliocentric orbital elements.
+
+pub mod orbits;
 
 use rand::distr::{Distribution, Uniform};
 use rand::rngs::StdRng;

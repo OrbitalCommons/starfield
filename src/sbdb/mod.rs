@@ -17,6 +17,10 @@
 //!
 //! No API key or authentication is required.
 //!
+//! The [`snapshot`] submodule provides an offline element-diff utility for
+//! keeping frozen (hand-transcribed) element tables honest against live
+//! SBDB lookups.
+//!
 //! # Quick Start
 //!
 //! ```no_run
@@ -41,7 +45,13 @@
 //! ```
 
 pub mod query;
+pub mod snapshot;
 pub mod types;
+
+pub use snapshot::{
+    diff_against_live, diff_elements, Element, ElementDiff, ElementSnapshot, LiveElements,
+    Tolerances,
+};
 
 pub use crate::data::sbdb::{
     CadParams, CadResponse, FireballParams, FireballResponse, SbdbClient, SbdbLookupResponse,
