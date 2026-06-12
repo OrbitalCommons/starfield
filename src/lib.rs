@@ -39,6 +39,7 @@ pub mod secularlib;
 pub mod sgp4lib;
 pub mod starlib;
 pub mod statslib;
+pub mod surveylib;
 pub mod time;
 pub mod toposlib;
 pub mod units;
