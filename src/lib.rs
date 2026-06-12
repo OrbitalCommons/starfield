@@ -34,6 +34,7 @@ pub mod pybridge;
 pub mod relativity;
 pub mod sbdb;
 pub mod searchlib;
+pub mod secularlib;
 pub mod sgp4lib;
 pub mod starlib;
 pub mod statslib;
