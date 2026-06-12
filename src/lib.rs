@@ -25,6 +25,7 @@ pub mod jplephem;
 pub mod jplephem_ext;
 pub mod keplerlib;
 pub mod magnitudelib;
+pub mod nbodylib;
 pub mod nutationlib;
 pub mod planetlib;
 pub mod positions;
