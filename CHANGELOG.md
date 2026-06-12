@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0
+
+Five new modules extracted from the OrbitalCommons/planet9 research workspace, where they were built and hardened against published Planet Nine results. Zero new dependencies across all five.
+
+- Add `nbodylib` — symplectic N-body integration, starfield's first perturbed-propagation capability: Wisdom-Holman in democratic-heliocentric coordinates (Duncan, Levison & Lee 1998), hardened universal-variable Kepler drift, Bulirsch-Stoer with recursive step halving, Chambers (1999) hybrid encounter switching, and a composable `ExtraForce` hook (J2-averaged giant-planet quadrupole, galactic tide via `framelib::GALACTIC`, custom closures). Ephemeris-seeded initial conditions via `planetlib`; `examples/nbody_giants.rs` (#153)
+- Add `secularlib` — secular & resonance dynamics: quadrupole/octupole Hamiltonians with documented validity regimes, numerical Gauss-ring double averaging for the non-hierarchical regime, convergence-controlled Hansen coefficients, and perturber-generic Chirikov overlap / critical perihelion / libration detection with Neptune convenience wrappers (#152)
+- Add `statslib` — circular statistics (circular mean/std, mean resultant length, Rayleigh test with the Mardia & Jupp small-n correction, Kuiper test, seeded Monte Carlo joint-significance helpers) and time-series primitives (multi-origin MSD diffusion estimator, median absolute deviation) (#149)
+- Add `surveylib` — survey detection/completeness simulation: footprints with exact solid angles, logistic magnitude efficiency, k-of-n linking via exact Poisson-binomial tails, typed apparent-position geometry (with a regression test against declination/ecliptic-latitude conflation), deterministic expected-completeness accumulation, and multi-survey OR combination (#154)
+- Add `magnitudelib::small_body` — physical photometry for hypothetical/small bodies (Neptune-anchored mass-radius, H from radius+albedo, reflected-light apparent magnitude, IAU two-term H-G phase law), cross-validated against the Mallama-Hilton Neptune model in-crate (#150)
+- Add `catalogs::synthetic::orbits` (seeded synthetic orbital populations with deterministic-N resampling) and `sbdb::snapshot` (offline element diffing with wrap-aware angle deltas, plus `diff_against_live`, documenting the frozen-snapshot/drift-allowlist pattern) (#151)
+
 ## 0.13.0
 
 - Upgrade `ndarray` 0.16 → 0.17 (#148). Semver-incompatible for consumers of starfield's ndarray-typed catalog/`StarData` APIs, hence a minor bump.
