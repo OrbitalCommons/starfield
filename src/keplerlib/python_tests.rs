@@ -414,3 +414,63 @@ rust.collect_string(f"{float(pos1[0]):.15f},{float(pos1[1]):.15f},{float(pos1[2]
 
 // Make `ele_to_vec` and `propagate` accessible for tests
 use crate::constants::{AU_KM, DAY_S};
+
+/// 1994 TG, an MPCORB assumed-circular row (`e = 0.0000000`, #192), against
+/// Skyfield. Skyfield's `eccentric_anomaly` divides by `e` and raises
+/// `ZeroDivisionError` at exactly zero, so the reference orbit uses
+/// `e = 1e-8`; the two states differ by at most `a·e ≈ 4e-7` AU, and the
+/// comparison tolerance is set above that.
+#[test]
+fn test_circular_mpcorb_orbit_vs_skyfield() {
+    let bridge = PyRustBridge::new().unwrap();
+    let ts = Timescale::default();
+    let epoch_jd = 2449620.5; // J949P
+    let target_jd = 2462328.416667;
+    let epoch = ts.tt_jd(epoch_jd, None);
+    let orbit = mpcorb_orbit(
+        42.2543833,
+        0.0,
+        6.76386,
+        15.50983,
+        353.02318,
+        0.0,
+        &epoch,
+        GM_SUN,
+        Some("1994 TG"),
+    );
+    let pos = orbit.try_at(&ts.tt_jd(target_jd, None)).unwrap();
+
+    let python_code = format!(
+        r#"
+from skyfield.api import load
+from skyfield.constants import GM_SUN_Pitjeva_2005_km3_s2 as GM_SUN
+from skyfield.keplerlib import _KeplerOrbit
+from skyfield.data.spice import inertial_frames
+
+ts = load.timescale()
+a = 42.2543833
+e = 1e-8
+p = a * (1.0 - e*e)
+mp = _KeplerOrbit._from_mean_anomaly(
+    p, e, 6.76386, 15.50983, 353.02318, 0.0,
+    ts.tt_jd({epoch_jd}), GM_SUN, 10, '1994 TG',
+)
+mp._rotation = inertial_frames['ECLIPJ2000'].T
+pos, vel, _, _ = mp._at(ts.tt_jd({target_jd}))
+rust.collect_string(f"{{float(pos[0]):.12f}},{{float(pos[1]):.12f}},{{float(pos[2]):.12f}}")
+"#
+    );
+    let result = bridge.run_py_to_json(&python_code).unwrap();
+    let coords = match PythonResult::try_from(result.as_str()).unwrap() {
+        PythonResult::String(s) => s,
+        other => panic!("Expected String result, got {:?}", other),
+    };
+    let expected: Vec<f64> = coords.split(',').map(|s| s.parse().unwrap()).collect();
+    for (axis, want) in expected.iter().enumerate() {
+        assert!(
+            (pos.position[axis] - want).abs() < 1e-5,
+            "axis {axis}: starfield {} vs Skyfield {want}",
+            pos.position[axis]
+        );
+    }
+}

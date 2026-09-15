@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.3
+
+- `keplerlib` no longer panics on degenerate catalogue elements (#192). `eccentric_anomaly` handles `e = 0` exactly — MPCORB's assumed-circular rows, `e` printed as `0.0000000`, used to produce a NaN state from an ∞·0 starting guess — and `propagate` returns a non-finite state instead of hitting `f64::clamp` with a NaN bound for elements that describe no bound orbit (`e ≥ 1` with `a > 0`, `a ≤ 0`, NaN). New `KeplerOrbit::try_at` returns an error for such orbits and `KeplerOrbit::is_finite` screens them; `at` keeps its signature. Regression tests cover the 1994 TG row, the near-parabolic damocloids, and the degenerate cases
+
 ## 0.16.2
 
 - Data files resolve through `starfield-datastore` (new default-on `datastore` feature, rollout step 5): `Loader::open`, `open_text_pck`, `open_binary_pck`, `ensure_file`, `download_hipparcos` and the Gaia shard downloader go `local disk → STARFIELD_MIRROR → upstream (only with STARFIELD_ALLOW_UPSTREAM=1)`, with every fetch validated by starfield's own kernel magic numbers before it is cached. A flat `~/.cache/starfield/<file>` (or `hip_main.dat`, or a Gaia shard) left by the old downloader is adopted on first use, so nothing is re-downloaded. See `docs/datastore.md`

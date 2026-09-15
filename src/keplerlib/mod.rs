@@ -207,6 +207,13 @@ impl KeplerOrbit {
     /// Propagate the orbit to the given time
     ///
     /// Returns a Barycentric `Position` in the ICRF.
+    ///
+    /// This never panics. An orbit whose elements do not describe a bound
+    /// two-body orbit — `e ≥ 1` with a positive semimajor axis, `a ≤ 0`, or a
+    /// NaN element, all of which occur in real catalogue rows — has a
+    /// non-finite state, and propagating it returns a non-finite position.
+    /// Use [`try_at`](Self::try_at) to get an error instead, or
+    /// [`is_finite`](Self::is_finite) to screen a catalogue up front.
     pub fn at(&self, time: &Time) -> Position {
         let (mut pos, mut vel) = propagate(
             &self.position_au,
@@ -222,6 +229,49 @@ impl KeplerOrbit {
         }
 
         Position::barycentric(pos, vel, self.center)
+    }
+
+    /// Propagate the orbit to the given time, or fail if the orbit has no
+    /// finite state.
+    ///
+    /// The same as [`at`](Self::at) for a well-formed orbit. For elements that
+    /// do not describe a bound two-body orbit — `e ≥ 1` with a positive
+    /// semimajor axis, `a ≤ 0`, or a NaN element — it returns
+    /// [`StarfieldError::DataError`] naming the orbit, where `at` would return
+    /// a non-finite position.
+    pub fn try_at(&self, time: &Time) -> crate::Result<Position> {
+        if !self.is_finite() {
+            return Err(crate::StarfieldError::DataError(format!(
+                "{} has no finite state: its elements do not describe a bound orbit \
+                 (e ≥ 1 with a > 0, a ≤ 0, or a NaN element)",
+                self
+            )));
+        }
+        let position = self.at(time);
+        if position.position.iter().all(|v| v.is_finite())
+            && position.velocity.iter().all(|v| v.is_finite())
+        {
+            Ok(position)
+        } else {
+            Err(crate::StarfieldError::DataError(format!(
+                "{} could not be propagated to TT JD {}: the universal-variable \
+                 solver produced a non-finite state",
+                self,
+                time.tt()
+            )))
+        }
+    }
+
+    /// Whether the orbit's state at its epoch is finite.
+    ///
+    /// False for elements that do not describe a bound two-body orbit —
+    /// `e ≥ 1` with a positive semimajor axis, `a ≤ 0`, or a NaN element —
+    /// which is how a catalogue row such as an MPCORB record with `e` printed
+    /// as `1.0000000` shows up. Screening on this is cheaper than catching
+    /// the error from [`try_at`](Self::try_at) per epoch.
+    pub fn is_finite(&self) -> bool {
+        self.position_au.iter().all(|v| v.is_finite())
+            && self.velocity_au_per_day.iter().all(|v| v.is_finite())
     }
 
     /// Barycentric state of the body on this orbit at `t`.
@@ -332,6 +382,16 @@ pub fn comet_orbit(
 /// Build a minor planet orbit from MPC-style parameters
 ///
 /// This is the Rust equivalent of Skyfield's `mpcorb_orbit()`.
+///
+/// The elements must describe a bound orbit: `0 ≤ e < 1` and `a > 0`. MPCORB
+/// uses a perihelion distance rather than a semimajor axis for `e ≥ 1`, so
+/// such a row's `a` column is meaningless and the orbit built from it has no
+/// finite state; likewise `a ≤ 0` or a NaN element. Those orbits are returned
+/// rather than rejected so a catalogue can be loaded row by row without
+/// error handling at every call, but [`KeplerOrbit::is_finite`] is false for
+/// them, [`KeplerOrbit::at`] returns a non-finite position, and
+/// [`KeplerOrbit::try_at`] returns an error. `e = 0` exactly — MPCORB's
+/// assumed-circular orbits — is handled and finite.
 #[allow(clippy::too_many_arguments)]
 pub fn mpcorb_orbit(
     semimajor_axis_au: f64,
@@ -384,6 +444,12 @@ fn normpi(m: f64) -> f64 {
 /// Works for both elliptic (e < 1) and hyperbolic (e > 1) orbits.
 pub(crate) fn eccentric_anomaly(e: f64, m: f64) -> f64 {
     let m = normpi(m);
+    // A circular orbit has E = M exactly; the starting guess below divides by
+    // e and would be ∞·0 = NaN, which is how MPCORB's assumed-circular rows
+    // (e printed as 0.0000000) used to poison the state.
+    if e == 0.0 {
+        return m;
+    }
     let sign_m = m.signum();
     let m = m * sign_m;
 
@@ -586,6 +652,13 @@ pub(crate) fn propagate(
         let logbound = (1.5_f64.ln() + (f64::MAX).ln() - maxc.ln()) / 3.0;
         logbound.exp()
     };
+
+    // A non-finite state — e ≥ 1 with a > 0, a ≤ 0, or a NaN element — gives a
+    // NaN bound, and `f64::clamp` panics on a NaN limit. Return the non-finite
+    // state instead of solving; `KeplerOrbit::try_at` turns it into an error.
+    if bound.is_nan() || bound <= 0.0 {
+        return (Vector3::repeat(f64::NAN), Vector3::repeat(f64::NAN));
+    }
 
     let dt = t1 - t0;
 
@@ -1057,5 +1130,144 @@ mod tests {
             0.0,
             epsilon = 1e-10
         );
+    }
+
+    /// E = M exactly for a circular orbit, for every mean anomaly.
+    #[test]
+    fn test_eccentric_anomaly_zero_eccentricity() {
+        for m in [-3.0, -1.0, 0.0, 0.5, 2.0, 3.1, 7.0, 100.0] {
+            let ea = eccentric_anomaly(0.0, m);
+            assert!(ea.is_finite(), "M = {m} gave {ea}");
+            assert_relative_eq!(ea, normpi(m), epsilon = 1e-15);
+        }
+    }
+
+    /// 1994 TG, one of the 80 MPCORB rows with an assumed-circular orbit
+    /// (`e = 0.0000000`), which used to produce a NaN state and a panic in
+    /// `f64::clamp` (#192). Elements from MPCORB.DAT 2026-09-14, epoch J949P;
+    /// the target is the epoch at which the report was made.
+    #[test]
+    fn test_mpcorb_circular_row_propagates() {
+        let ts = Timescale::default();
+        let epoch = ts.tt_jd(2449620.5, None);
+        let target = ts.tt_jd(2462328.416667, None);
+        let orbit = mpcorb_orbit(
+            42.2543833,
+            0.0,
+            6.76386,
+            15.50983,
+            353.02318,
+            0.0,
+            &epoch,
+            GM_SUN,
+            Some("1994 TG"),
+        );
+        assert!(orbit.is_finite());
+        let at_epoch = orbit.try_at(&epoch).unwrap();
+        let later = orbit.try_at(&target).unwrap();
+        // A circular orbit keeps its radius: r = a at every epoch.
+        assert_relative_eq!(at_epoch.position.norm(), 42.2543833, epsilon = 1e-9);
+        assert_relative_eq!(later.position.norm(), 42.2543833, epsilon = 1e-6);
+        // Continuity with a barely eccentric neighbour: the states agree to a·e.
+        let nearby = mpcorb_orbit(
+            42.2543833, 1e-9, 6.76386, 15.50983, 353.02318, 0.0, &epoch, GM_SUN, None,
+        );
+        assert_relative_eq!(
+            (nearby.at(&target).position - later.position).norm(),
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    /// The near-parabolic damocloids from #192's original report propagate
+    /// to finite states (MPCORB.DAT 2026-09-14, epoch K2669, to 2029-07-10).
+    #[test]
+    fn test_mpcorb_near_parabolic_rows_propagate() {
+        let ts = Timescale::default();
+        let epoch = ts.utc((2026, 6, 9));
+        let target = ts.utc((2029, 7, 10));
+        let rows = [
+            (
+                "~0CeZ",
+                0.17891,
+                195.18162,
+                341.36656,
+                78.02336,
+                0.9851862,
+                979.8572853,
+            ),
+            (
+                "~0NHL",
+                0.11127,
+                166.30126,
+                180.22293,
+                98.55224,
+                0.9932534,
+                1247.350484,
+            ),
+            (
+                "K02RA9N",
+                0.45612,
+                212.46090,
+                170.46660,
+                57.91790,
+                0.9961326,
+                698.9919493,
+            ),
+        ];
+        for (name, m, peri, node, incl, e, a) in rows {
+            let orbit = mpcorb_orbit(a, e, incl, node, peri, m, &epoch, GM_SUN, Some(name));
+            let position = orbit.try_at(&target).unwrap();
+            let r = position.position.norm();
+            assert!((20.0..60.0).contains(&r), "{name}: r = {r} AU");
+        }
+    }
+
+    /// Elements that describe no bound orbit give a non-finite state, an
+    /// error from `try_at`, and never a panic — at the epoch or later.
+    #[test]
+    fn test_degenerate_elements_never_panic() {
+        let ts = Timescale::default();
+        let epoch = ts.utc((2026, 6, 9));
+        let target = ts.utc((2029, 7, 10));
+        let cases: [(&str, f64, f64, f64); 6] = [
+            ("e = 1 exactly", 979.85, 1.0, 0.17891),
+            ("e just above 1, a > 0", 979.85, 1.0000001, 0.17891),
+            ("a = 0", 0.0, 0.5, 0.17891),
+            ("a NaN", f64::NAN, 0.5, 0.17891),
+            ("e NaN", 979.85, f64::NAN, 0.17891),
+            ("M NaN", 979.85, 0.5, f64::NAN),
+        ];
+        for (name, a, e, m) in cases {
+            let orbit = mpcorb_orbit(a, e, 78.02, 341.36, 195.18, m, &epoch, GM_SUN, None);
+            assert!(!orbit.is_finite(), "{name}: expected a non-finite orbit");
+            for t in [&epoch, &target] {
+                assert!(!orbit.at(t).position.norm().is_finite(), "{name}");
+                let err = orbit.try_at(t).unwrap_err().to_string();
+                assert!(err.contains("bound orbit"), "{name}: {err}");
+            }
+        }
+    }
+
+    /// `try_at` is `at` for a well-formed orbit.
+    #[test]
+    fn test_try_at_matches_at() {
+        let ts = Timescale::default();
+        let epoch = ts.tt_jd(2458600.5, None);
+        let target = ts.tt_jd(2458700.5, None);
+        let ceres = mpcorb_orbit(
+            2.7691651,
+            0.0760091,
+            10.59351,
+            80.30553,
+            73.59764,
+            95.98917,
+            &epoch,
+            GM_SUN,
+            Some("Ceres"),
+        );
+        assert!(ceres.is_finite());
+        let position = ceres.try_at(&target).unwrap();
+        assert_eq!(position.position, ceres.at(&target).position);
     }
 }
