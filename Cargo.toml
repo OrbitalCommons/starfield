@@ -50,7 +50,7 @@ thiserror = "2.0"
 log = "0.4"
 chrono = "0.4.40"
 base64 = "0.22.1"
-indicatif = "0.17.11"  # Progress bars and indicators
+indicatif = "0.18"  # Progress bars and indicators
 
 # Image processing
 # Minimal feature set: AVIF (default) drags in rav1e → {core2, rand 0.9, paste}
