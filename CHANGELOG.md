@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.4
+
+- Bump indicatif 0.17 → 0.18, dropping the unmaintained `number_prefix` (RUSTSEC-2025-0119) from the dependency tree; with starfield-datastore 0.1.2 this was the last path by which it reached downstream crates (#195)
+- `Time::utc_iso` rounds to the last printed place instead of truncating, carrying through seconds, minutes, hours and the date, as Skyfield does; `2007-10-03T05:30:00Z` no longer prints as `05:29:59` (#194, closes #178)
+
 ## 0.16.3
 
 - `keplerlib` no longer panics on degenerate catalogue elements (#192). `eccentric_anomaly` handles `e = 0` exactly — MPCORB's assumed-circular rows, `e` printed as `0.0000000`, used to produce a NaN state from an ∞·0 starting guess — and `propagate` returns a non-finite state instead of hitting `f64::clamp` with a NaN bound for elements that describe no bound orbit (`e ≥ 1` with `a > 0`, `a ≤ 0`, NaN). New `KeplerOrbit::try_at` returns an error for such orbits and `KeplerOrbit::is_finite` screens them; `at` keeps its signature. Regression tests cover the 1994 TG row, the near-parabolic damocloids, and the degenerate cases
