@@ -1076,19 +1076,23 @@ impl Time {
     }
 
     /// Format UTC time as ISO 8601 string
+    ///
+    /// The result is rounded to the last printed place, so an instant a few
+    /// nanoseconds short of a whole second prints as that second rather than
+    /// one second early, and the carry propagates through minutes, hours and
+    /// the date. As in Skyfield, this is done by adding half a unit of the
+    /// last place before splitting the calendar tuple and then truncating.
     pub fn utc_iso(&self, delimiter: char, places: usize) -> Result<String> {
-        let cal = self.utc_calendar()?;
+        let power_of_ten = 10f64.powi(places as i32);
+        let cal = self
+            .shift_days(0.5 / (power_of_ten * DAY_S))
+            .utc_calendar()?;
+        let second_int = cal.second.floor() as u32;
 
         if places > 0 {
-            let second_int = cal.second.floor() as u32;
-            let fraction = cal.second - second_int as f64;
-            let fraction_str = format!("{:.*}", places, fraction)
-                .chars()
-                .skip(2)
-                .collect::<String>();
-
+            let fraction = ((cal.second - second_int as f64) * power_of_ten).floor() as u64;
             Ok(format!(
-                "{:04}-{:02}-{:02}{}{:02}:{:02}:{:02}.{}Z",
+                "{:04}-{:02}-{:02}{}{:02}:{:02}:{:02}.{:0width$}Z",
                 cal.year,
                 cal.month,
                 cal.day,
@@ -1096,12 +1100,13 @@ impl Time {
                 cal.hour,
                 cal.minute,
                 second_int,
-                fraction_str
+                fraction,
+                width = places
             ))
         } else {
             Ok(format!(
                 "{:04}-{:02}-{:02}{}{:02}:{:02}:{:02}Z",
-                cal.year, cal.month, cal.day, delimiter, cal.hour, cal.minute, cal.second as u32
+                cal.year, cal.month, cal.day, delimiter, cal.hour, cal.minute, second_int
             ))
         }
     }
@@ -2011,5 +2016,77 @@ mod tests {
         let _tai = t.tai_strftime("%Y-%m-%d");
         let _tdb = t.tdb_strftime("%Y-%m-%d");
         let _ut1 = t.ut1_strftime("%Y-%m-%d");
+    }
+
+    /// `utc_iso` rounds to the last printed place instead of truncating
+    /// (#178): 2007-10-03T05:30:00Z lands a few nanoseconds below the whole
+    /// second and used to print as 05:29:59.
+    #[test]
+    fn test_utc_iso_rounds_to_last_place() {
+        let ts = Timescale::default();
+        let cases = [
+            ((2007, 10, 3, 5, 30, 0.0), "2007-10-03T05:30:00.000Z"),
+            ((1999, 12, 31, 23, 59, 59.0), "1999-12-31T23:59:59.000Z"),
+            ((2016, 12, 31, 12, 0, 0.0), "2016-12-31T12:00:00.000Z"),
+            ((2027, 6, 1, 0, 0, 0.0), "2027-06-01T00:00:00.000Z"),
+        ];
+        for (tuple, want) in cases {
+            let t = ts.utc(tuple);
+            assert_eq!(t.utc_iso('T', 3).unwrap(), want);
+            assert_eq!(t.utc_iso('T', 0).unwrap(), format!("{}Z", &want[..19]));
+        }
+
+        // The carry propagates through the seconds, minutes, hours and date.
+        let almost_midnight = ts.utc((2007, 10, 3, 23, 59, 59.9996));
+        assert_eq!(
+            almost_midnight.utc_iso('T', 3).unwrap(),
+            "2007-10-04T00:00:00.000Z"
+        );
+        assert_eq!(
+            almost_midnight.utc_iso(' ', 0).unwrap(),
+            "2007-10-04 00:00:00Z"
+        );
+        // Below the rounding threshold it stays put.
+        let just_before = ts.utc((2007, 10, 3, 23, 59, 59.9994));
+        assert_eq!(
+            just_before.utc_iso('T', 3).unwrap(),
+            "2007-10-03T23:59:59.999Z"
+        );
+    }
+
+    /// Formatting at 0, 3 and 6 places and parsing back lands within half a
+    /// unit of the last place for random instants across 1972–2040.
+    #[test]
+    fn test_utc_iso_round_trips_within_half_a_unit() {
+        let ts = Timescale::default();
+        let mut seed: u64 = 0x5DEECE66D;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for _ in 0..10_000 {
+            let jd = 2441317.5 + next() * (2469807.5 - 2441317.5);
+            let t = ts.tt_jd(jd, None);
+            for places in [0usize, 3, 6] {
+                let text = t.utc_iso('T', places).unwrap();
+                let year: i32 = text[0..4].parse().unwrap();
+                let month: u32 = text[5..7].parse().unwrap();
+                let day: u32 = text[8..10].parse().unwrap();
+                let hour: u32 = text[11..13].parse().unwrap();
+                let minute: u32 = text[14..16].parse().unwrap();
+                let second: f64 = text[17..text.len() - 1].parse().unwrap();
+                let back = ts.utc((year, month, day, hour, minute, second));
+                let error_s = (back.tt() - t.tt()).abs() * DAY_S;
+                // A single-f64 Julian date resolves to about 40 µs near J2000, so
+                // the 6-place case is bounded by representation, not formatting.
+                let half_unit = 0.5 / 10f64.powi(places as i32) + 1e-4;
+                assert!(
+                    error_s <= half_unit,
+                    "{text} ({places} places) round-trips with {error_s} s error"
+                );
+            }
+        }
     }
 }
