@@ -5,7 +5,8 @@ name: Publish
 #
 # The job lists the workspace's publishable packages (anything without
 # `publish = false`), asks crates.io whether each exact `name@version` already
-# exists, and runs a single `cargo publish` for the ones that don't. Cargo
+# exists, and runs `cargo publish` for the ones that don't. Explicit registry
+# rate limits wait until the server's retry time, then recheck missing versions. Cargo
 # publishes a multi-package set in dependency order and waits for each crate to
 # reach the index before publishing its dependents, so a lockstep release of
 # the whole family is one step. Re-runs, and manifest edits that leave versions
@@ -85,11 +86,8 @@ jobs:
             echo "::error::CARGO_REGISTRY_TOKEN is not set, so ${PACKAGES} merged to main without being released. Add the secret, then re-run this workflow."
             exit 1
           fi
-          args=()
-          for package in $PACKAGES; do
-            args+=(-p "$package")
-          done
-          cargo publish "${args[@]}"
+          # Package names contain no whitespace or shell metacharacters.
+          python3 devops/publish_workspace.py $PACKAGES
 
       - name: Tag and create the GitHub release
         env:
