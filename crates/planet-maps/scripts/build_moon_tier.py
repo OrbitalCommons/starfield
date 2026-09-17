@@ -35,8 +35,14 @@ PRODUCT = "Lunar_LRO_LROC-WAC_Mosaic_global_100m_June2013.tif"
 
 OUT_W, OUT_H = 3600, 1800
 
-MAGIC = b"SFEMv3\n"
-SCRIPT_VERSION = "4"
+MAGIC = b"SFEMv4\n"
+SCRIPT_VERSION = "5"
+
+# Albedo convention written to the header (0 = hemispherical Lambert,
+# 1 = geometric disk mean). Recorded because tiers in this format are not
+# interchangeable photometrically: see AlbedoConvention in tier.rs.
+ALBEDO_CONVENTION = 1
+ALBEDO_CONVENTION_NAME = "GeometricDiskMean"
 
 # USGS equirectangular, east-positive planetocentric, north at row 0. The Moon's
 # flattening is ~1.2e-3 and USGS lunar products are defined on a sphere, so
@@ -62,7 +68,6 @@ MOON_GEOMETRIC_ALBEDO = 0.12
 # basalt is the right spectral family for mare and the wrong one for highlands,
 # which is precisely what #65 fixes.
 ENDMEMBER = "FreshBasalt"
-ENDMEMBER_BAND_MEAN = 0.102  # solar-weighted 400-2400 nm, from the library
 
 # WAC's global mosaic is the 643 nm band.
 BAND_NM = (633.0, 653.0)
@@ -76,6 +81,46 @@ NODATA_DN_FLOOR = 5
 # partial coverage rather than dark ground -- ~0.1% of the tier within +/-70 deg
 # latitude, but they read as implausibly dark terrain.
 MIN_COVERAGE = 0.5
+
+
+# The band in which this tier reproduces its target albedo, written to the
+# header. The geometric albedo target is a V-band quantity, so the one-endmember
+# abundance is normalised against the endmember's mean over the same band.
+# Normalising against a broad 400-2400 nm mean instead left the tier 7-10% dark
+# in a silicon sensor band, because basalt is redder beyond 1100 nm.
+ALBEDO_BAND_NM = (500.0, 600.0)
+
+
+def endmember_band_mean(endmember, lo, hi):
+    """Unweighted mean reflectance over [lo, hi] nm, from the shipped library.
+
+    Exact for the piecewise-linear reading, and identical to
+    SampledCurve::mean_over, so a consumer can reproduce the anchor exactly.
+    Computed here rather than hardcoded so it cannot drift from the spectrum a
+    consumer evaluates.
+    """
+    import bisect
+    import csv
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "..", "..", "reflectance-library", "data",
+                       "splib07_endmembers.csv")
+    pts = [(float(r[1]), float(r[2])) for r in csv.reader(open(lib))
+           if r and not r[0].startswith("#") and r[0] == endmember]
+    if not pts:
+        raise SystemExit(f"endmember {endmember} not in {lib}")
+    xs = [p[0] for p in pts]
+
+    def at(x):
+        i = bisect.bisect_left(xs, x)
+        if xs[i] == x:
+            return pts[i][1]
+        (x0, y0), (x1, y1) = pts[i - 1], pts[i]
+        return y0 + (x - x0) / (x1 - x0) * (y1 - y0)
+
+    seg = [(lo, at(lo))] + [p for p in pts if lo < p[0] < hi] + [(hi, at(hi))]
+    area = sum(0.5 * (seg[i][1] + seg[i + 1][1]) * (seg[i + 1][0] - seg[i][0])
+               for i in range(len(seg) - 1))
+    return area / (hi - lo)
 
 
 def main(out_path):
@@ -137,7 +182,9 @@ def main(out_path):
           file=sys.stderr)
     print(f"albedo range {albedo.min():.4f} - {albedo.max():.4f}", file=sys.stderr)
 
-    abundance = albedo / ENDMEMBER_BAND_MEAN
+    band_mean = endmember_band_mean(ENDMEMBER, *ALBEDO_BAND_NM)
+    print(f"{ENDMEMBER} mean over {ALBEDO_BAND_NM} nm: {band_mean:.4f}", file=sys.stderr)
+    abundance = albedo / band_mean
     abundance[nodata] = 0.0
     scale = float(math.ceil(abundance.max() * 10.0) / 10.0)
     print(f"abundance max {abundance.max():.3f}, scale {scale}", file=sys.stderr)
@@ -145,11 +192,13 @@ def main(out_path):
     body = np.clip(abundance / scale * 255.0 + 0.5, 0, 255).astype(np.uint8).tobytes()
     names_blob = ENDMEMBER.encode()
     provenance = (
+        f"albedo convention: {ALBEDO_CONVENTION_NAME}; "
         f"USGS {PRODUCT} ({BAND_NM[0]:.0f}-{BAND_NM[1]:.0f} nm); "
         f"morphology mosaic, DN rescaled so the area-weighted mean is the "
         f"published geometric albedo {MOON_GEOMETRIC_ALBEDO} "
-        f"(Mallama et al. 2017); one endmember ({ENDMEMBER}, band mean "
-        f"{ENDMEMBER_BAND_MEAN}) pending RELAB/LSCC lunar soils; "
+        f"(Mallama et al. 2017); one endmember ({ENDMEMBER}, mean "
+        f"{band_mean:.4f} over {ALBEDO_BAND_NM[0]:.0f}-{ALBEDO_BAND_NM[1]:.0f} nm) "
+        f"pending RELAB/LSCC lunar soils; "
         f"no-data (DN < {NODATA_DN_FLOOR} or coverage < {MIN_COVERAGE}) "
         f"{nodata_frac * 100:.2f}% of area, encoded as abundance 0; "
         f"build_moon_tier.py v{SCRIPT_VERSION}"
@@ -164,6 +213,8 @@ def main(out_path):
         len(body),
     )
     header += struct.pack("<f", scale)
+    header += struct.pack("<B", ALBEDO_CONVENTION)
+    header += struct.pack("<ff", *ALBEDO_BAND_NM)
     header += struct.pack("<H", len(names_blob)) + names_blob
     header += struct.pack("<H", len(provenance)) + provenance
 

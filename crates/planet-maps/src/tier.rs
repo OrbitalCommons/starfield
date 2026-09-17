@@ -21,7 +21,31 @@ use crate::grid::{Latitude, Longitude, MapGrid, RowOrder};
 use crate::map::{SampleFootprint, SurfaceSampler, MU_FLOOR};
 
 /// Format magic. Bump on any layout change.
-const MAGIC: &[u8] = b"SFEMv3\n";
+const MAGIC: &[u8] = b"SFEMv4\n";
+
+/// What a tier's reflectance values mean photometrically.
+///
+/// Two tiers in the same format can carry albedos that are not interchangeable,
+/// and treating one as the other misstates brightness by a large factor: scaling
+/// a geometric-albedo tier with a unit Lambert law put the Moon at 2.2x its
+/// published V flux at 86 degrees phase. So the convention is stored in the
+/// header rather than implied by which product a tier came from.
+///
+/// Values are **not** converted between conventions. The relation between
+/// geometric and normal albedo depends on the body's phase law -- the lunar
+/// opposition surge alone breaks the Lambert 2/3 factor -- so the consumer's
+/// photometric model is the right place to reconcile them, not this file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlbedoConvention {
+    /// The mix reproduces a hemispherical, Lambert-style albedo. Scale with a
+    /// law of unit Lambert albedo. Used by composition tiers whose endmember
+    /// weights were fitted to class-mean shortwave albedos.
+    HemisphericalLambert,
+    /// The disk-area-weighted mean reproduces the body's published geometric
+    /// albedo. Scale with a law normalised to unit geometric albedo. Used by
+    /// tiers rescaled from uncalibrated visualisation mosaics.
+    GeometricDiskMean,
+}
 
 /// Where a grid's coordinate bounds sit relative to its cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +67,8 @@ pub struct AbundanceTier {
     registration: Registration,
     naif_id: i32,
     scale: f32,
+    albedo_convention: AlbedoConvention,
+    albedo_band_nm: (f32, f32),
     provenance: String,
     /// Mip pyramid. Level 0 is full resolution; each level is plane-major,
     /// `planes[e * w * h + row * w + col]`, 255 = abundance 1.0.
@@ -104,6 +130,25 @@ impl AbundanceTier {
         p += 4;
         if !scale.is_finite() || scale <= 0.0 {
             return Err(err(format!("scale {scale} must be finite and positive")));
+        }
+        need(p, 1, b)?;
+        let albedo_convention = match b[p] {
+            0 => AlbedoConvention::HemisphericalLambert,
+            1 => AlbedoConvention::GeometricDiskMean,
+            other => return Err(err(format!("unknown albedo convention {other}"))),
+        };
+        p += 1;
+        need(p, 8, b)?;
+        let albedo_band_nm = (
+            f32::from_le_bytes(b[p..p + 4].try_into().unwrap()),
+            f32::from_le_bytes(b[p + 4..p + 8].try_into().unwrap()),
+        );
+        p += 8;
+        if !albedo_band_nm.0.is_finite()
+            || !albedo_band_nm.1.is_finite()
+            || albedo_band_nm.0 >= albedo_band_nm.1
+        {
+            return Err(err(format!("invalid albedo band {albedo_band_nm:?}")));
         }
 
         let take_str = |p: &mut usize| -> Result<String> {
@@ -181,6 +226,8 @@ impl AbundanceTier {
             },
             naif_id,
             scale,
+            albedo_convention,
+            albedo_band_nm,
             provenance,
             levels: build_pyramid(TierLevel {
                 width,
@@ -233,6 +280,26 @@ impl AbundanceTier {
     /// `raw / 255 * scale`. Composition tiers use `1.0`.
     pub fn scale(&self) -> f32 {
         self.scale
+    }
+
+    /// What the reflectance values mean photometrically. Choose the unit
+    /// photometric law from this, not from the body or product name -- see
+    /// [`AlbedoConvention`].
+    pub fn albedo_convention(&self) -> AlbedoConvention {
+        self.albedo_convention
+    }
+
+    /// The wavelength band, in nm, in which the tier reproduces its target
+    /// albedo.
+    ///
+    /// For a one-endmember tier the abundance is `target / endmember mean over
+    /// this band`, so evaluating the mix in a different band yields the target
+    /// scaled by the endmember's own colour between the two bands. That is
+    /// physically right for a body of that colour, but it is not the target
+    /// itself. A consumer comparing against a published albedo must compare in
+    /// this band. Geometric-albedo tiers use V, `(500, 600)`.
+    pub fn albedo_band_nm(&self) -> (f32, f32) {
+        self.albedo_band_nm
     }
 
     /// Abundance of plane `e` at `(col, row)` of `level`.
@@ -820,6 +887,133 @@ mod tests {
         // started eating real terrain.
         let frac = empty as f64 / (valid + empty) as f64;
         assert!(frac < 0.05, "no-data fraction {frac}");
+    }
+
+    #[test]
+    fn each_tier_declares_its_albedo_convention() {
+        // Earth's endmember weights were fitted to hemispherical class-mean
+        // albedos; Moon and Mars were rescaled to geometric albedo. A consumer
+        // that picks its unit law from this field gets both right.
+        assert_eq!(
+            earth_tier().unwrap().albedo_convention(),
+            AlbedoConvention::HemisphericalLambert
+        );
+        assert_eq!(
+            moon_tier().unwrap().albedo_convention(),
+            AlbedoConvention::GeometricDiskMean
+        );
+        assert_eq!(
+            mars_tier().unwrap().albedo_convention(),
+            AlbedoConvention::GeometricDiskMean
+        );
+    }
+
+    #[test]
+    fn provenance_states_the_albedo_convention() {
+        for (name, t) in [
+            ("earth", earth_tier().unwrap()),
+            ("moon", moon_tier().unwrap()),
+            ("mars", mars_tier().unwrap()),
+        ] {
+            assert!(
+                t.provenance().contains("albedo convention"),
+                "{name}: {}",
+                t.provenance()
+            );
+        }
+    }
+
+    #[test]
+    fn each_tier_records_the_band_its_target_holds_in() {
+        assert_eq!(earth_tier().unwrap().albedo_band_nm(), (400.0, 2400.0));
+        assert_eq!(moon_tier().unwrap().albedo_band_nm(), (500.0, 600.0));
+        assert_eq!(mars_tier().unwrap().albedo_band_nm(), (500.0, 600.0));
+    }
+
+    /// Area-weighted mean albedo a tier reproduces in its own recorded band.
+    ///
+    /// Weights each valid sample by cos(latitude); no-data samples (empty
+    /// mixes) are excluded, matching how the build script calibrated.
+    fn reproduced_band_albedo(t: &AbundanceTier) -> f64 {
+        let lib = starfield_reflectance_library::ReflectanceLibrary::load_embedded().unwrap();
+        let (lo, hi) = t.albedo_band_nm();
+        let mut num = 0.0;
+        let mut den = 0.0;
+        let step = 0.5f64;
+        let mut lat = -90.0 + step / 2.0;
+        while lat < 90.0 {
+            let w = lat.to_radians().cos();
+            let mut lon = step / 2.0;
+            while lon < 360.0 {
+                let mix = t.sample(lon.to_radians(), lat.to_radians()).unwrap();
+                if !mix.weights().is_empty() {
+                    num += w * mix.band_mean(&lib, lo as f64, hi as f64).unwrap();
+                    den += w;
+                }
+                lon += step;
+            }
+            lat += step;
+        }
+        num / den
+    }
+
+    #[test]
+    fn geometric_albedo_tiers_reproduce_their_target_in_their_band() {
+        // The regression this locks: the one-endmember tiers were normalised
+        // against a 400-2400 nm endmember mean, so evaluated in any visible or
+        // silicon band they came out 7-10% below the published geometric
+        // albedo. Normalised at V, the tier's area-weighted mean in its own
+        // recorded band equals the target.
+        for (name, t, p) in [
+            ("moon", moon_tier().unwrap(), 0.12),
+            ("mars", mars_tier().unwrap(), 0.17),
+        ] {
+            let got = reproduced_band_albedo(&t);
+            assert!(
+                (got - p).abs() / p < 0.02,
+                "{name}: reproduces {got:.4} in {:?} nm, target {p}",
+                t.albedo_band_nm()
+            );
+        }
+    }
+
+    #[test]
+    fn an_inverted_albedo_band_is_rejected() {
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(EARTH_TIER_GZ)
+            .read_to_end(&mut raw)
+            .unwrap();
+        // Band lo/hi f32s follow the convention byte at 47.
+        raw[48..52].copy_from_slice(&900.0f32.to_le_bytes());
+        raw[52..56].copy_from_slice(&500.0f32.to_le_bytes());
+        let err = AbundanceTier::from_bytes(&raw).unwrap_err().to_string();
+        assert!(err.contains("invalid albedo band"), "{err}");
+    }
+
+    #[test]
+    fn a_v3_tier_is_rejected_rather_than_read_with_an_assumed_convention() {
+        // v3 files carry no convention. Reading one and guessing would silently
+        // reintroduce the 2.2x brightness error, so the magic must not match.
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(EARTH_TIER_GZ)
+            .read_to_end(&mut raw)
+            .unwrap();
+        raw[..7].copy_from_slice(b"SFEMv3\n");
+        let err = AbundanceTier::from_bytes(&raw).unwrap_err().to_string();
+        assert!(err.contains("bad magic"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_convention_byte_is_rejected() {
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(EARTH_TIER_GZ)
+            .read_to_end(&mut raw)
+            .unwrap();
+        // Fixed header: magic(7) + 8 single-byte/u16 fields + i32(4) +
+        // 2*f64(16) + u64(8) + f32(4) = 47; the convention byte follows.
+        raw[47] = 7;
+        let err = AbundanceTier::from_bytes(&raw).unwrap_err().to_string();
+        assert!(err.contains("unknown albedo convention"), "{err}");
     }
 
     #[test]
