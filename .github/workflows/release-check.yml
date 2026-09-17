@@ -1,0 +1,45 @@
+name: Release Check
+
+# Catch, before merge, anything that would make the Publish workflow fail or
+# release badly after merge: a new version with no CHANGELOG.md entry, or a
+# crate that cargo cannot package (missing files, over the crates.io 10 MB limit).
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "starfield-build-cache"
+
+      - name: A new version has a CHANGELOG.md entry
+        run: |
+          # Crates share one version and one changelog, keyed by the `starfield` version.
+          version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "starfield") | .version')
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "User-Agent: starfield-release-check-ci (https://github.com/OrbitalCommons/starfield)" \
+            "https://crates.io/api/v1/crates/starfield/${version}")
+          if [ "$code" = "200" ]; then
+            echo "starfield ${version} is already published; no version change in this PR."
+          elif grep -qx "## ${version}" CHANGELOG.md; then
+            echo "starfield ${version} is new and has a CHANGELOG.md entry."
+          else
+            echo "::error::starfield ${version} is not on crates.io, so merging this PR publishes it, but CHANGELOG.md has no '## ${version}' section."
+            exit 1
+          fi
+
+      - name: Package every publishable crate
+        run: cargo publish --dry-run --workspace

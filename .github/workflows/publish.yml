@@ -1,0 +1,109 @@
+name: Publish
+
+# Publish every workspace crate whose version is not yet on crates.io, whenever
+# a version change merges to main.
+#
+# The job lists the workspace's publishable packages (anything without
+# `publish = false`), asks crates.io whether each exact `name@version` already
+# exists, and runs a single `cargo publish` for the ones that don't. Cargo
+# publishes a multi-package set in dependency order and waits for each crate to
+# reach the index before publishing its dependents, so a lockstep release of
+# the whole family is one step. Re-runs, and manifest edits that leave versions
+# unchanged, are no-ops.
+#
+# After a publish, the `starfield` version is tagged `vX.Y.Z` and released on
+# GitHub with its CHANGELOG.md section as the notes.
+#
+# Requires a `CARGO_REGISTRY_TOKEN` repository secret: a crates.io API token
+# with the `publish-new` and `publish-update` scopes, restricted to the crates
+# `starfield` and `starfield-*` (which covers the datasource crates and the
+# planned core/catalogs/jpl/surfaces/tools split).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - ".github/workflows/publish.yml"
+  # Re-run by hand, e.g. after adding or fixing the token, without another bump.
+  workflow_dispatch:
+
+# Never cancel an in-flight publish, and never run two at once.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "starfield-build-cache"
+
+      - name: Find crate versions not yet on crates.io
+        id: plan
+        run: |
+          pending=()
+          while read -r name version; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "User-Agent: starfield-publish-ci (https://github.com/OrbitalCommons/starfield)" \
+              "https://crates.io/api/v1/crates/${name}/${version}")
+            case "$code" in
+              200) echo "${name} ${version}: already on crates.io" ;;
+              404) echo "${name} ${version}: not yet published"; pending+=("$name") ;;
+              *) echo "::error::unexpected HTTP ${code} from crates.io for ${name} ${version}"; exit 1 ;;
+            esac
+            # crates.io asks automated clients for at most one request per second.
+            sleep 1
+          done < <(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.publish != []) | "\(.name) \(.version)"')
+          echo "packages=${pending[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        if: steps.plan.outputs.packages != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          PACKAGES: ${{ steps.plan.outputs.packages }}
+        run: |
+          # Fail loudly: a version bump that merges without publishing is
+          # exactly the merged-but-unreleased state this workflow exists to end.
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not set, so ${PACKAGES} merged to main without being released. Add the secret, then re-run this workflow."
+            exit 1
+          fi
+          args=()
+          for package in $PACKAGES; do
+            args+=(-p "$package")
+          done
+          cargo publish "${args[@]}"
+
+      - name: Tag and create the GitHub release
+        if: steps.plan.outputs.packages != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "starfield") | .version')
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release ${tag} already exists"
+            exit 0
+          fi
+          awk -v heading="## ${version}" '$0 == heading {found=1; next} found && /^## / {exit} found' \
+            CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "starfield ${version}" > notes.md
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" \
+            --title "starfield ${version}" --notes-file notes.md

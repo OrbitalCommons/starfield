@@ -21,6 +21,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Fix any formatting or linting issues before finalizing the commit
 - Do not include attribution to Claude in commit messages
 
+## Releasing
+- Releases are automated: merging a version change to `main` publishes it. `.github/workflows/publish.yml` publishes every crate whose `name@version` is not yet on crates.io, in dependency order, then tags `vX.Y.Z` and creates the GitHub release from that version's `CHANGELOG.md` section
+- To release, bump `version` in `Cargo.toml` and add a `## X.Y.Z` section to `CHANGELOG.md` in the same PR. The `Release Check` workflow fails the PR if the changelog entry is missing or a crate doesn't package
+- Versioning: patch for additive changes, minor for breaking ones; every crate in the family shares one version
+- Never run `cargo publish` by hand. If a publish fails after merge, fix the cause and re-run the Publish workflow (`gh workflow run publish.yml`)
+- Publishing uses the `CARGO_REGISTRY_TOKEN` repository secret: a crates.io token with the `publish-new` and `publish-update` scopes, restricted to `starfield` and `starfield-*`
+
 ## Code Style Guidelines
 - Use Rust 2021 edition idioms
 - Document public APIs with doc comments (`//!` for modules, `///` for items)
