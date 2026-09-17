@@ -1,0 +1,112 @@
+[package]
+name = "starfield"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Astronomical calculations, catalogs, and data clients"
+readme = "README.md"
+include = ["src/**", "examples/**", "tests/**", "Cargo.toml", "README.md", "LICENSE"]
+
+[dependencies]
+starfield-core = { version = "=0.17.0", path = "../core", default-features = false }
+starfield-horizons = { version = "=0.17.0", path = "../horizons", optional = true }
+starfield-sbdb = { version = "=0.17.0", path = "../sbdb", optional = true }
+starfield-gaia = { version = "=0.17.0", path = "../gaia", optional = true }
+starfield-gaia-extended = { version = "=0.17.0", path = "../gaia-extended", optional = true }
+starfield-bright-galaxies = { version = "=0.17.0", path = "../bright-galaxies", optional = true }
+starfield-hipparcos = { version = "=0.17.0", path = "../hipparcos", optional = true }
+starfield-mast = { version = "=0.17.0", path = "../mast", optional = true }
+starfield-mpc = { version = "=0.17.0", path = "../mpc", optional = true }
+starfield-nsa = { version = "=0.17.0", path = "../nsa", optional = true }
+starfield-planet-spectra = { version = "=0.17.0", path = "../planet-spectra", optional = true }
+starfield-planet-maps = { version = "=0.17.0", path = "../planet-maps", optional = true }
+starfield-reflectance-library = { version = "=0.17.0", path = "../reflectance-library", optional = true }
+starfield-solar-spectrum = { version = "=0.17.0", path = "../solar-spectrum", optional = true }
+starfield-rubin = { version = "=0.17.0", path = "../rubin", optional = true }
+
+[features]
+default = ["datastore"]
+datastore = ["starfield-core/datastore"]
+photometry = ["starfield-core/photometry"]
+python-tests = ["starfield-core/python-tests", "dep:pyo3", "dep:anyhow"]
+catalogs = ["gaia", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa"]
+jpl = ["horizons", "sbdb", "mpc", "rubin"]
+surfaces = ["planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum"]
+all-data = ["catalogs", "jpl", "surfaces", "gaia-all", "radial-profiles"]
+gaia-all = ["gaia", "starfield-gaia/all-releases"]
+radial-profiles = ["nsa", "starfield-nsa/radial-profiles"]
+horizons = ["dep:starfield-horizons"]
+sbdb = ["dep:starfield-sbdb"]
+gaia = ["dep:starfield-gaia"]
+gaia-extended = ["dep:starfield-gaia-extended"]
+bright-galaxies = ["dep:starfield-bright-galaxies"]
+hipparcos = ["dep:starfield-hipparcos"]
+mast = ["dep:starfield-mast"]
+mpc = ["dep:starfield-mpc"]
+nsa = ["dep:starfield-nsa", "photometry"]
+planet-spectra = ["dep:starfield-planet-spectra"]
+planet-maps = ["dep:starfield-planet-maps"]
+reflectance-library = ["dep:starfield-reflectance-library"]
+solar-spectrum = ["dep:starfield-solar-spectrum"]
+rubin = ["dep:starfield-rubin"]
+
+[dependencies.pyo3]
+version = "0.24"
+optional = true
+
+[dependencies.anyhow]
+version = "1.0"
+optional = true
+
+[dev-dependencies]
+nalgebra = "0.32"           # Linear algebra
+time = "0.3"                # Time handling
+num = "0.4"                 # Numerical types
+lazy_static = "1.4"         # Lazy initialization
+ndarray = "0.17"            # N-dimensional arrays
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["blocking", "json", "multipart"] }
+flate2 = "1.0"                                          # GZip compression
+rand = "0.9"                                            # Random number generation for synthetic data
+md5 = "0.7"                                             # MD5 checksum calculation
+regex = "1.10"                                          # Regular expressions for parsing
+byteorder = "1.5"                                       # Binary data reading/writing
+thiserror = "2.0"
+log = "0.4"
+chrono = "0.4.40"
+base64 = "0.22.1"
+indicatif = "0.18"  # Progress bars and indicators
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+once_cell = "1.21.3"
+clap = { version = "4.5.40", features = ["derive"] }
+memmap2 = "0.9"
+uom = "0.37.0"
+sgp4 = "2.3.0"
+tempfile = "3"
+approx = "0.5"
+
+[[example]]
+name = "horizons_lookup"
+required-features = ["horizons"]
+
+[[example]]
+name = "horizons_vectors"
+required-features = ["horizons"]
+
+[[example]]
+name = "skyfield_comparison"
+required-features = ["python-tests"]
+
+[[example]]
+name = "sbdb_lookup"
+required-features = ["sbdb"]
+
+[[example]]
+name = "sbdb_close_approach"
+required-features = ["sbdb"]
+
+[[example]]
+name = "workspace_catalog"
+required-features = ["hipparcos", "horizons"]

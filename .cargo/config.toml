@@ -1,6 +1,6 @@
 [alias]
 # Build and run the catalog stats tool
-stats = "run --bin catalog_stats --"
+stats = "run -p starfield-core --bin catalog_stats --"
 
 # For backwards compatibility with former bin name
-star_catalog_stats = "run --bin catalog_stats --"
+star_catalog_stats = "run -p starfield-core --bin catalog_stats --"

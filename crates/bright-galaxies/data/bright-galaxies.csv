@@ -1,0 +1,44 @@
+name,ra_deg,dec_deg,morph_type,mag_v,radius_sersic_arcsec,n_sersic,ellipticity_sersic,pa_sersic_deg,notes
+M31,10.6847,41.2691,Sb,3.44,720.0,2.5,0.68,35.0,Andromeda; B-band Sersic fits give R_e ~12 arcmin
+M32,10.6743,40.8653,cE2,8.08,30.0,4.0,0.18,170.0,Andromeda companion; compact elliptical
+M110,10.0921,41.6853,dE5,8.07,130.0,1.5,0.50,169.0,Andromeda companion; dwarf elliptical
+M33,23.4621,30.6602,Sc,5.72,360.0,1.4,0.41,23.0,Triangulum; late-type spiral
+LMC,80.8939,-69.7561,Irr,0.40,5400.0,0.7,0.27,170.0,Large Magellanic Cloud; Sersic is a coarse approximation for the irregular disk
+SMC,13.158,-72.800,Irr,2.20,2400.0,0.5,0.50,45.0,Small Magellanic Cloud; Sersic is a very coarse approximation
+NGC6822,296.2358,-14.7892,IB,8.71,250.0,1.0,0.37,10.0,Barnard's Galaxy; dwarf irregular
+M77,40.6696,-0.0133,Sb,8.87,60.0,2.5,0.15,70.0,Cetus A; Seyfert nucleus
+M51,202.4696,47.1953,Sbc,8.40,70.0,2.0,0.05,80.0,Whirlpool; nearly face-on
+NGC5195,202.4983,47.2725,SB0pec,9.60,60.0,2.0,0.10,80.0,M51 companion (NGC 5195)
+M81,148.8881,69.0653,Sab,6.94,240.0,4.0,0.48,157.0,Bode's Galaxy
+M82,148.9697,69.6797,I0/Sbrst,8.41,100.0,1.0,0.57,65.0,Cigar Galaxy; edge-on starburst
+M101,210.8023,54.3486,Scd,7.86,350.0,1.5,0.05,39.0,Pinwheel; large face-on grand design
+M104,189.9976,-11.6230,Sa,8.00,80.0,4.0,0.59,89.0,Sombrero; bulge-dominated edge-on
+M83,204.2538,-29.8657,SBc,7.50,230.0,1.4,0.09,51.0,Southern Pinwheel
+NGC5128,201.3651,-43.0192,S0pec,6.84,305.0,4.0,0.22,35.0,Centaurus A; gE with prominent dust lane
+NGC253,11.8881,-25.2884,SBc,7.10,210.0,2.0,0.73,53.0,Sculptor Galaxy; edge-on starburst
+NGC1316,50.6738,-37.2083,S0pec,8.40,90.0,4.0,0.29,50.0,Fornax A; merger remnant
+M64,194.1820,21.6826,Sab,8.52,90.0,3.0,0.49,115.0,Black Eye Galaxy
+M94,192.7211,41.1204,Sab,8.24,75.0,3.0,0.16,105.0,Cat's Eye Galaxy (sometimes)
+M106,184.7396,47.3038,Sb,8.41,220.0,2.0,0.59,150.0,maser Seyfert
+M65,169.7325,13.0925,Sa,9.30,130.0,2.0,0.71,174.0,Leo Triplet member
+M66,170.0621,12.9915,Sb,8.92,140.0,2.0,0.45,173.0,Leo Triplet member
+M95,160.9904,11.7038,SBb,9.70,75.0,1.5,0.10,13.0,
+M96,161.6905,11.8200,Sab,9.20,90.0,2.0,0.30,5.0,
+M105,161.9568,12.5816,E1,9.30,60.0,4.0,0.10,71.0,
+M87,187.7059,12.3911,E0,8.60,81.0,4.0,0.15,153.0,Virgo cluster cD; jet host
+M86,186.5488,12.9461,E3,8.90,90.0,4.0,0.30,130.0,Virgo
+M84,186.2654,12.8870,E1,9.10,56.0,4.0,0.10,135.0,Virgo
+M49,187.4451,8.0006,E2,8.40,105.0,4.0,0.20,155.0,Virgo
+M60,190.9163,11.5526,E2,8.83,70.0,4.0,0.16,105.0,Virgo
+M59,190.5096,11.6469,E5,9.60,50.0,4.0,0.32,163.0,Virgo
+M89,188.9159,12.5563,E0,9.80,30.0,4.0,0.05,0.0,Virgo
+M90,189.2076,13.1628,Sab,9.50,100.0,2.0,0.49,23.0,Virgo
+NGC891,35.6392,42.3492,Sb,10.00,110.0,1.5,0.86,22.0,classic edge-on disk
+NGC4565,189.0866,25.9879,Sb,9.60,200.0,2.0,0.86,136.0,Needle Galaxy; edge-on
+NGC5907,228.9737,56.3289,Sc,10.30,200.0,2.0,0.85,155.0,edge-on with stellar streams
+NGC4631,190.5333,32.5414,SBd,9.20,200.0,1.5,0.78,86.0,Whale Galaxy; edge-on
+NGC3115,151.3083,-7.7183,S0,8.90,70.0,4.0,0.45,43.0,Spindle Galaxy
+NGC1300,49.9208,-19.4114,SBb,10.40,100.0,1.5,0.30,100.0,classic barred spiral
+NGC1399,54.6213,-35.4506,E1,9.50,60.0,4.0,0.07,150.0,Fornax cluster cD
+IC342,56.7022,68.0961,SBcd,8.40,250.0,1.5,0.05,180.0,face-on spiral behind galactic plane
+NGC6946,308.7180,60.1539,SBc,9.60,200.0,1.5,0.10,80.0,Fireworks Galaxy

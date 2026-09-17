@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.0
+
+- Join starfield and starfield-datasources into one history-preserving workspace,
+  with one version, changelog, CI, and automated publication workflow.
+- Keep `starfield` as the public facade; move shared calculations and traits to
+  `starfield-core`. All internal dependencies use exact, local version pins.
+- Add `catalogs`, `jpl`, and `surfaces` feature groups and individual datasource
+  features, preserving Gaia release and NSA radial-profile controls.
+- Consolidate HORIZONS and SBDB implementations, retaining HORIZONS calendar
+  formatting and SBDB orbital-element snapshot support.
+- Breaking: HORIZONS and SBDB now require their matching feature (or `jpl`).
+  Replace `Loader::horizons_client()` / `Loader::sbdb_client()` with the clients'
+  `new()` constructors. Core types and existing catalog paths remain available.
+- Include the final datasource cutover: SFEMv4 planet-map headers identify
+  albedo conventions and wavelength bands; Moon and Mars are normalized at V.
+- The datasource Hipparcos loader is available at
+  `starfield::catalogs::hipparcos::catalog::HipparcosCatalog`; the pre-existing
+  `starfield::catalogs::hipparcos::HipparcosCatalog` retains its original type.
+- Keep `starfield-datastore` independently versioned. Existing embedded data
+  remains available offline; no asset download is added by this migration.
+
 ## 0.16.4
 
 - Bump indicatif 0.17 → 0.18, dropping the unmaintained `number_prefix` (RUSTSEC-2025-0119) from the dependency tree; with starfield-datastore 0.1.2 this was the last path by which it reached downstream crates (#195)

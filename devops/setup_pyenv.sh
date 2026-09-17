@@ -2,11 +2,11 @@
 set -e
 
 # Sets up a pyenv-managed Python interpreter and installs the reference
-# packages used by `cargo test --features python-tests`.
+# packages used by `cargo test -p starfield-core --features python-tests`.
 #
 # Note on venvs: previous versions of this script created a pyenv-virtualenv
 # named "starfield" and installed packages into it. PyO3's embedded
-# interpreter (used by `src/pybridge`) does not honor pyenv-virtualenv at
+# interpreter (used by `crates/core/src/pybridge`) does not honor pyenv-virtualenv at
 # runtime — it links against the *base* `libpython` and looks up packages
 # in that base interpreter's `site-packages`. So packages must live in the
 # base interpreter, not a venv. The venv is removed here.

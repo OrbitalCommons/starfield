@@ -1,0 +1,39 @@
+# Disc orientation of Mars seen from the Earth and of the Earth seen from Mars,
+# as published by the JPL Horizons observer table.
+#
+# Source : https://ssd.jpl.nasa.gov/api/horizons.api
+#          EPHEM_TYPE='OBSERVER' QUANTITIES='14,15,16,17' CSV_FORMAT='YES'
+#          ANG_FORMAT='DEG' EXTRA_PREC='YES' CAL_FORMAT='JD' OBJ_DATA='NO'
+#          COMMAND='499' CENTER='500@399' and COMMAND='399' CENTER='500@499'
+#          TLIST=2451545.0,2454376.5,2459136.5
+# Fetched : 2026-09-08, Horizons API version 1.2
+# Reprodu.: crates/horizons/tests/disk_orientation.rs, test_horizons_fixture_is_current
+#
+# Horizons quantity 14 is the sub-observer point, 15 the sub-solar point, 16
+# the position angle and disc-centre distance of the sub-solar point and 17
+# the same pair for the north pole. Both longitudes are planetodetic and are
+# given in the sense of the target's cartographic system, which the header of
+# the response states: west-positive for Mars (IAU_MARS), east-positive for
+# the Earth (ITRF93). Both latitudes are planetodetic, so they carry the
+# oblateness of the reference ellipsoid. Both position angles are measured
+# counter-clockwise on the sky from the north of the reference frame of the
+# observer's own body: the equator of date of the Earth for a geocentric
+# observer, and the IAU pole of Mars for a Mars-centred one.
+#
+# Columns
+#   target           NAIF code of the body whose disc is described
+#   center           NAIF code of the body the observer sits at the centre of
+#   jd_ut            Julian date of the row, on the UT scale Horizons prints
+#   obs_sub_lon_deg  ObsSub-LON, degrees
+#   obs_sub_lat_deg  ObsSub-LAT, degrees
+#   sun_sub_lon_deg  SunSub-LON, degrees
+#   sun_sub_lat_deg  SunSub-LAT, degrees
+#   sn_ang_deg       SN.ang, degrees
+#   np_ang_deg       NP.ang, degrees
+target,center,jd_ut,obs_sub_lon_deg,obs_sub_lat_deg,sun_sub_lon_deg,sun_sub_lat_deg,sn_ang_deg,np_ang_deg
+499,399,2451545.0,69.543497,-23.259282,35.074453,-25.374217,250.71,351.6251
+499,399,2454376.5,256.913283,3.994735,295.492284,-14.577633,90.77,334.3250
+499,399,2459136.5,171.769746,-20.714866,171.230584,-22.780267,158.63,325.1196
+399,499,2451545.0,53.918289,-13.266617,4.663870,-23.172174,100.91,351.6251
+399,499,2454376.5,82.612091,23.556937,179.302262,-3.750493,243.55,334.3250
+399,499,2459136.5,358.476685,5.482393,177.371431,-8.286490,166.46,325.1196

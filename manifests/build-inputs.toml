@@ -1,0 +1,10 @@
+# Inputs used to regenerate embedded data, not downloaded by normal consumers.
+[[artifact]]
+key = "usgs/splib07/ASCIIdata_splib07a.zip"
+sources = ["https://www.sciencebase.gov/catalog/file/get/586e8c88e4b0f5ce109fccae?f=__disk__a7%2F4f%2F91%2Fa74f913e0b7d1b8123ad059e52506a02b75a2832"]
+bytes = 21812828
+freshness = "immutable"
+check = { all = ["not-html", { min_bytes = 1000000 }, { magic = [[80, 75, 3, 4]], trim_leading_whitespace = false }] }
+description = "USGS Spectral Library 7 ASCII data; ScienceBase item 586e8c88e4b0f5ce109fccae"
+license = "USGS data release; retain attribution to Kokaly et al. (2017)"
+citation = "Kokaly et al. (2017), USGS Data Series 1035, doi:10.5066/F7RR1WDJ"

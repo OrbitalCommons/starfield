@@ -1,0 +1,186 @@
+//! Planetary ephemeris calculations module
+
+use thiserror::Error;
+
+use crate::jplephem::kernel::SpiceKernel;
+use crate::jplephem::PlanetState;
+use crate::jplephem_ext::SpiceKernelExt;
+use crate::time::Time;
+
+/// Error type for planetary calculations
+#[derive(Debug, Error)]
+pub enum PlanetError {
+    #[error("Planet not found: {0}")]
+    NotFound(String),
+
+    #[error("Data error: {0}")]
+    DataError(String),
+
+    #[error("Invalid time: {0}")]
+    TimeError(String),
+
+    #[error("Ephemeris error: {0}")]
+    EphemerisError(#[from] crate::jplephem::JplephemError),
+}
+
+/// Major solar system bodies
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Body {
+    Sun,
+    Mercury,
+    Venus,
+    Earth,
+    Moon,
+    Mars,
+    Jupiter,
+    Saturn,
+    Uranus,
+    Neptune,
+    Pluto,
+}
+
+impl Body {
+    /// Get the body's name
+    pub fn name(&self) -> &'static str {
+        match self {
+            Body::Sun => "Sun",
+            Body::Mercury => "Mercury",
+            Body::Venus => "Venus",
+            Body::Earth => "Earth",
+            Body::Moon => "Moon",
+            Body::Mars => "Mars",
+            Body::Jupiter => "Jupiter",
+            Body::Saturn => "Saturn",
+            Body::Uranus => "Uranus",
+            Body::Neptune => "Neptune",
+            Body::Pluto => "Pluto",
+        }
+    }
+
+    /// Get the NAIF SPICE ID for this body
+    pub fn naif_id(&self) -> i32 {
+        match self {
+            Body::Sun => 10,
+            Body::Mercury => 199,
+            Body::Venus => 299,
+            Body::Earth => 399,
+            Body::Moon => 301,
+            Body::Mars => 499,
+            Body::Jupiter => 599,
+            Body::Saturn => 699,
+            Body::Uranus => 799,
+            Body::Neptune => 899,
+            Body::Pluto => 999,
+        }
+    }
+
+    /// The body's entry in the embedded IAU WGCCRE 2015 table.
+    ///
+    /// Every variant of this enum is covered by the table, so the lookup
+    /// cannot fail.
+    fn constants(&self) -> &'static crate::planetarylib::BodyConstants {
+        crate::planetarylib::body_constants(self.naif_id())
+            .expect("every Body is present in the embedded IAU 2015 table")
+    }
+
+    /// The triaxial ellipsoid radii in km: two equatorial, then polar.
+    ///
+    /// Values are the IAU WGCCRE 2015 ones embedded in
+    /// [`planetarylib`](crate::planetarylib); load a text PCK kernel with
+    /// [`Loader::open_text_pck`](crate::Loader::open_text_pck) to override
+    /// them.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use starfield_core::planetlib::Body;
+    /// assert_eq!(Body::Mars.radii_km(), [3396.19, 3396.19, 3376.20]);
+    /// ```
+    pub fn radii_km(&self) -> [f64; 3] {
+        self.constants().radii
+    }
+
+    /// The mean radius in km: the arithmetic mean of the three ellipsoid axes.
+    pub fn mean_radius_km(&self) -> f64 {
+        self.constants().mean_radius_km()
+    }
+
+    /// The flattening `(a − c) / a` of the reference ellipsoid, zero for a
+    /// sphere.
+    pub fn flattening(&self) -> f64 {
+        self.constants().flattening()
+    }
+
+    /// The body's pole, prime meridian and nutation/precession terms.
+    pub fn rotational_elements(&self) -> &'static crate::planetarylib::RotationalElements {
+        &self.constants().elements
+    }
+
+    /// Get the SPICE name used for kernel lookups
+    fn spice_name(&self) -> &'static str {
+        match self {
+            Body::Sun => "sun",
+            Body::Mercury => "mercury",
+            Body::Venus => "venus",
+            Body::Earth => "earth",
+            Body::Moon => "moon",
+            Body::Mars => "mars",
+            Body::Jupiter => "jupiter barycenter",
+            Body::Saturn => "saturn barycenter",
+            Body::Uranus => "uranus barycenter",
+            Body::Neptune => "neptune barycenter",
+            Body::Pluto => "pluto barycenter",
+        }
+    }
+}
+
+/// Planetary ephemeris backed by a SPICE kernel
+pub struct Ephemeris {
+    kernel: SpiceKernel,
+}
+
+impl Ephemeris {
+    /// Create an ephemeris from a loaded SpiceKernel
+    pub fn from_kernel(kernel: SpiceKernel) -> Self {
+        Self { kernel }
+    }
+
+    /// Get a body's state at a given time
+    pub fn get_state(&mut self, body: Body, time: &Time) -> Result<PlanetState, PlanetError> {
+        Ok(self.kernel.compute_at(body.spice_name(), time)?)
+    }
+
+    /// Access the underlying SpiceKernel
+    pub fn kernel(&self) -> &SpiceKernel {
+        &self.kernel
+    }
+
+    /// Access the underlying SpiceKernel mutably
+    pub fn kernel_mut(&mut self) -> &mut SpiceKernel {
+        &mut self.kernel
+    }
+
+    /// Compute the heliocentric ecliptic J2000 state vector of a body.
+    ///
+    /// Convenience method that computes the state of `body` relative to the
+    /// Sun and rotates into the ecliptic J2000 frame.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let sv = ephemeris.ecliptic_state(Body::Mars, &t)?;
+    /// println!("Mars distance: {:.4} AU", sv.distance());
+    /// ```
+    pub fn ecliptic_state(
+        &mut self,
+        body: Body,
+        time: &Time,
+    ) -> Result<crate::positions::ecliptic::EclipticStateVector, PlanetError> {
+        Ok(crate::positions::ecliptic::EclipticStateVector::compute(
+            &mut self.kernel,
+            body.spice_name(),
+            "sun",
+            time,
+        )?)
+    }
+}

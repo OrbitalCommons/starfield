@@ -1,0 +1,15 @@
+[package]
+name = "starfield-bright-galaxies"
+version.workspace = true
+description = "Hand-curated supplement of nearby bright galaxies (M31, LMC, Virgo, etc.) missing from automated extragalactic catalogs"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+starfield-core = { workspace = true }
+starfield-gaia = { version = "=0.17.0", path = "../gaia" }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

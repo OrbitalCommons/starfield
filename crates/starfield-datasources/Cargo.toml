@@ -1,0 +1,57 @@
+[package]
+name = "starfield-datasources"
+version.workspace = true
+description = "Astronomical data source clients for the starfield ecosystem"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["horizons", "sbdb", "gaia", "hipparcos", "mpc", "nsa", "rubin"]
+horizons = ["dep:starfield-horizons"]
+sbdb = ["dep:starfield-sbdb"]
+gaia = ["dep:starfield-gaia"]
+gaia-all = ["gaia", "starfield-gaia/all-releases"]
+gaia-extended = ["gaia", "dep:starfield-gaia-extended"]
+bright-galaxies = ["gaia", "dep:starfield-bright-galaxies"]
+hipparcos = ["dep:starfield-hipparcos"]
+mast = ["dep:starfield-mast"]
+mpc = ["dep:starfield-mpc"]
+nsa = ["dep:starfield-nsa"]
+planet-spectra = ["dep:starfield-planet-spectra"]
+planet-maps = ["dep:starfield-planet-maps"]
+reflectance-library = ["dep:starfield-reflectance-library"]
+solar-spectrum = ["dep:starfield-solar-spectrum"]
+rubin = ["dep:starfield-rubin"]
+
+[[test]]
+name = "pullthrough"
+required-features = ["gaia-all", "planet-maps", "planet-spectra", "mast", "hipparcos"]
+
+[[example]]
+name = "datastore_manifest"
+required-features = ["gaia-all", "planet-maps", "planet-spectra", "mast"]
+
+[dev-dependencies]
+starfield-core.workspace = true
+starfield-datastore.workspace = true
+starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+tempfile.workspace = true
+serde_json.workspace = true
+md5.workspace = true
+
+[dependencies]
+starfield-horizons = { version = "=0.17.0", path = "../horizons", optional = true }
+starfield-sbdb = { version = "=0.17.0", path = "../sbdb", optional = true }
+starfield-gaia = { version = "=0.17.0", path = "../gaia", optional = true }
+starfield-gaia-extended = { version = "=0.17.0", path = "../gaia-extended", optional = true }
+starfield-bright-galaxies = { version = "=0.17.0", path = "../bright-galaxies", optional = true }
+starfield-hipparcos = { version = "=0.17.0", path = "../hipparcos", optional = true }
+starfield-mast = { version = "=0.17.0", path = "../mast", optional = true }
+starfield-mpc = { version = "=0.17.0", path = "../mpc", optional = true }
+starfield-nsa = { version = "=0.17.0", path = "../nsa", optional = true }
+starfield-planet-spectra = { version = "=0.17.0", path = "../planet-spectra", optional = true }
+starfield-planet-maps = { version = "=0.17.0", path = "../planet-maps", optional = true }
+starfield-reflectance-library = { version = "=0.17.0", path = "../reflectance-library", optional = true }
+starfield-solar-spectrum = { version = "=0.17.0", path = "../solar-spectrum", optional = true }
+starfield-rubin = { version = "=0.17.0", path = "../rubin", optional = true }
