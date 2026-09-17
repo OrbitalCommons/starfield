@@ -41,7 +41,7 @@ flate2 = "1.0"
 md5 = "0.7"
 regex = "1.10"
 rand = "0.8"
-indicatif = "0.17"
+indicatif = "0.18"
 arrow = "58"
 cdshealpix = "0.9.1"
 clap = { version = "4", features = ["derive"] }
