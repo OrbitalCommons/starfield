@@ -13,7 +13,7 @@ env:
 
 jobs:
   package:
-    name: Package
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -61,3 +61,14 @@ jobs:
           cargo test -p starfield-core --features python-tests -- --test-threads=1
       - name: Compile Python examples through the facade
         run: cargo check -p starfield --features python-tests --examples
+
+  test-suite:
+    name: Test Suite
+    if: always()
+    needs: [test, facade, python-comparison]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
