@@ -390,6 +390,18 @@ fn build_pyramid(base: TierLevel) -> Vec<TierLevel> {
     levels
 }
 
+/// The embedded Moon tier: LROC WAC 643 nm mosaic at 0.1°, one endmember.
+///
+/// One endmember pending real lunar soils (#65): fresh basalt is the right
+/// spectral family for mare and the wrong one for highlands, and the
+/// mare/highland dichotomy is the Moon's largest albedo feature.
+pub const MOON_TIER_GZ: &[u8] = include_bytes!("../data/moon_albedo_0p1deg.bin.gz");
+
+/// Parse the embedded Moon tier.
+pub fn moon_tier() -> Result<AbundanceTier> {
+    AbundanceTier::from_gz_bytes(MOON_TIER_GZ)
+}
+
 /// The embedded Mars tier: USGS Viking colour mosaic at 0.1°, one endmember.
 ///
 /// Mars has no composition data yet, so this is a **one-endmember** tier:
@@ -711,6 +723,103 @@ mod tests {
         }
         assert!(lo > 0.02, "darkest albedo {lo}");
         assert!(hi < 0.55, "brightest albedo {hi}");
+    }
+
+    #[test]
+    fn moon_tier_has_the_expected_shape() {
+        let t = moon_tier().unwrap();
+        assert_eq!(t.size(), (3600, 1800));
+        assert_eq!(t.naif_id(), 301);
+        assert_eq!(t.endmembers(), &[Endmember::FreshBasalt]);
+        // The WAC mosaic is centred on the prime meridian, unlike the USGS Mars
+        // mosaics which start at it. Same agency, same projection, different
+        // origin -- which is why the grid is stored per product.
+        assert_eq!(t.grid().lon0_deg, -180.0);
+        assert_eq!(mars_tier().unwrap().grid().lon0_deg, 0.0);
+    }
+
+    #[test]
+    fn lunar_maria_are_darker_than_the_highlands() {
+        // The Moon's largest albedo feature, and the registration check: get
+        // the longitude origin wrong and this inverts, with maria reading
+        // brighter than highlands. That is exactly what happened on the first
+        // build of this tier.
+        let t = moon_tier().unwrap();
+        let at = |lon: f64, lat: f64| {
+            t.sample(lon.to_radians(), lat.to_radians())
+                .unwrap()
+                .weights()[0]
+                .1
+                * 0.102
+        };
+        let maria = [
+            ("Serenitatis", at(17.5, 28.0)),
+            ("Tranquillitatis", at(31.4, 8.5)),
+            ("Procellarum", at(302.0, 18.4)),
+        ];
+        let highlands = [("southern", at(0.0, -60.0)), ("farside", at(180.0, 0.0))];
+        for (mare_name, mare) in maria {
+            for (hl_name, hl) in highlands {
+                assert!(
+                    hl > 2.0 * mare,
+                    "{hl_name} highlands {hl} should be well above {mare_name} {mare}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tycho_is_brighter_than_the_surrounding_highlands() {
+        // Fresh ray craters are the brightest lunar terrain; Tycho is the
+        // canonical one, and it sits inside the southern highlands so this is a
+        // local contrast rather than a mare/highland one.
+        let t = moon_tier().unwrap();
+        let at = |lon: f64, lat: f64| {
+            t.sample(lon.to_radians(), lat.to_radians())
+                .unwrap()
+                .weights()[0]
+                .1
+                * 0.102
+        };
+        assert!(at(348.68, -43.31) > at(0.0, -60.0));
+    }
+
+    #[test]
+    fn lunar_albedos_are_physical_where_there_is_data() {
+        // Mare ~0.06-0.08, highlands ~0.11-0.16 in reality.
+        //
+        // WAC's swath seams are no-data and encode as an empty mix, so this
+        // skips them rather than asserting a physical albedo for ground that
+        // was never imaged. An empty mix is how the tier says "no data" — a
+        // real surface always has some reflectance.
+        let t = moon_tier().unwrap();
+        let mut valid = 0;
+        let mut empty = 0;
+        // Restricted to +/-70. Poleward of that, near-black is genuinely
+        // physical -- permanently shadowed crater floors receive no direct
+        // sunlight at all -- and texels there mix real shadow with partial
+        // seam coverage, so a brightness floor would be asserting something
+        // false about the Moon rather than about the data.
+        for lon in (0..360).step_by(5) {
+            for lat in (-70..=70).step_by(5) {
+                let mix = t
+                    .sample((lon as f64).to_radians(), (lat as f64).to_radians())
+                    .unwrap();
+                match mix.weights().first() {
+                    None => empty += 1,
+                    Some((_, w)) => {
+                        let a = w * 0.102;
+                        assert!((0.01..0.50).contains(&a), "{lon},{lat} albedo {a}");
+                        valid += 1;
+                    }
+                }
+            }
+        }
+        assert!(valid > 0);
+        // Seams are ~1% of area; a large jump would mean the no-data floor had
+        // started eating real terrain.
+        let frac = empty as f64 / (valid + empty) as f64;
+        assert!(frac < 0.05, "no-data fraction {frac}");
     }
 
     #[test]

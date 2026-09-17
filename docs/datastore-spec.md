@@ -1,11 +1,18 @@
 # `starfield-datastore` — a pull-through artifact cache
 
-> **The authoritative API specification is
-> [OrbitalCommons/starfield#189](https://github.com/OrbitalCommons/starfield/issues/189).**
-> The crate lives in the `starfield` repository, not this one. This document is
-> the design rationale — why the layers are arranged this way, what the mirror
-> and proxy modes trade off, and which archive failures drove the validation
-> rules. Where the two disagree about an interface, #189 wins.
+> **`starfield-datastore` lives in its own repository:
+> <https://github.com/OrbitalCommons/starfield-datastore>.** The authoritative
+> spec is `docs/spec.md` there, alongside issue
+> [starfield-datastore#1](https://github.com/OrbitalCommons/starfield-datastore/issues/1)
+> (transferred from `starfield#189` with its comment trail).
+>
+> This document is retained only as the design rationale — why the layers are
+> arranged as they are, what mirror and proxy modes trade off, and which archive
+> failures drove the fail-closed validation rules. **Where the two disagree,
+> the spec in that repository wins.**
+>
+> Consumers, including this repo, depend on it **by crates.io version, never by
+> git rev**.
 
 A single layer through which every crate in this workspace fetches every byte
 it does not generate itself: ephemeris kernels, catalog shards, PDS tables,
