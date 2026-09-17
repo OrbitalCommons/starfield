@@ -20,6 +20,18 @@ use starfield_datasource_utils::{cache_dir, ensure_cache_subdir, file_exists_and
 /// is acceptable for a public read-only catalog file — the FITS itself
 /// is checksum-verifiable downstream — but means we don't reach for
 /// `datasource_utils::download_to_file`, which validates the chain.
+///
+/// # Direct-download exception
+///
+/// This is a **deliberate, permanent exception** to routing downloads through
+/// `starfield-datastore`. That crate ships no per-source invalid-certificate
+/// flag on purpose: a fetch that skips verification while looking ordinary in a
+/// pinned manifest is worse than one that has to be spelled out here. So NSA
+/// keeps its own client, and the bypass stays visible at the call site.
+///
+/// If the NYU host ever serves a complete chain, delete
+/// `download_to_file_skip_cert_verify` and route this through the datastore
+/// like everything else.
 pub const NSA_URL: &str = "https://sdss.physics.nyu.edu/mblanton/v0/nsa_v0_1_2.fits";
 
 const NSA_FILENAME: &str = "nsa_v0_1_2.fits";

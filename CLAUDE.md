@@ -30,6 +30,15 @@
   Re-pointing one at the mirror silently defeats it: the mirror would go on
   serving a copy of a product whose upstream URL died years ago. See
   OrbitalCommons/starfield#189
+- **Direct-download exceptions.** Once `starfield-datastore` lands, every
+  downloader routes through it (step 5 of its rollout). Two categories stay
+  direct, and both must say so at the call site rather than silently bypassing:
+  - `starfield-nsa`: the NYU host serving `nsa_v0_1_2.fits` has an incomplete
+    TLS chain (missing intermediate), so `download_nsa` builds a one-off client
+    with `danger_accept_invalid_certs(true)`, scoped to that crate. The datastore
+    deliberately ships no per-source danger flag, because an invalid-cert fetch
+    that is invisible in a pinned manifest is worse than an explicit exception.
+  - The upstream-rot canaries below.
 - A canary that cannot reach upstream must **fail**, never skip. `#[ignore]`
   already gates these off by default; any second gate (an env var, a missing
   credential) that turns into a silent pass converts the canary into a
