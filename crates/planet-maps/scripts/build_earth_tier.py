@@ -36,8 +36,20 @@ BLOCK = 5
 # that hides bias, so it is stated rather than buried.
 COASTAL_RADIUS_CELLS = 2
 
-MAGIC = b"SFEMv3\n"
-SCRIPT_VERSION = "3"
+MAGIC = b"SFEMv4\n"
+SCRIPT_VERSION = "4"
+
+# Albedo convention written to the header (0 = hemispherical Lambert,
+# 1 = geometric disk mean). Recorded because tiers in this format are not
+# interchangeable photometrically: see AlbedoConvention in tier.rs.
+ALBEDO_CONVENTION = 0
+ALBEDO_CONVENTION_NAME = "HemisphericalLambert"
+
+# The band in which this tier reproduces its target albedo, written to the
+# header. Earth stores genuine abundances of real spectra rather than a
+# rescaled scalar, so a mix evaluated in any band gives that band's true
+# reflectance; this records the band its class weights were FITTED in.
+ALBEDO_BAND_NM = (400.0, 2400.0)
 
 # MCD12C1 is a Climate Modeling Grid product: plate carree on WGS84, spanning
 # -180..180 west-to-east and 90..-90 north-to-south, with cell EDGES on the
@@ -195,6 +207,8 @@ def main(out_path):
     body = np.clip(acc * 255.0 + 0.5, 0, 255).astype(np.uint8).tobytes()
     names_blob = "\n".join(names).encode()
     provenance = (
+        f"albedo convention: {ALBEDO_CONVENTION_NAME} over "
+        f"{ALBEDO_BAND_NM[0]:.0f}-{ALBEDO_BAND_NM[1]:.0f} nm; "
         f"MCD12C1 collection 061, granule {GRANULE}; "
         f"class table {CLASS_TABLE_VERSION}; "
         f"build_earth_tier.py v{SCRIPT_VERSION}; "
@@ -214,6 +228,8 @@ def main(out_path):
     )
     # Composition tier: abundances are a partition, so full scale is 1.0.
     header += struct.pack("<f", 1.0)
+    header += struct.pack("<B", ALBEDO_CONVENTION)
+    header += struct.pack("<ff", *ALBEDO_BAND_NM)
     header += struct.pack("<H", len(names_blob)) + names_blob
     header += struct.pack("<H", len(provenance)) + provenance
 

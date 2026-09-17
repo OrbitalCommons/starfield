@@ -13,6 +13,8 @@
 - Breaking: HORIZONS and SBDB now require their matching feature (or `jpl`).
   Replace `Loader::horizons_client()` / `Loader::sbdb_client()` with the clients'
   `new()` constructors. Core types and existing catalog paths remain available.
+- Include the final datasource cutover: SFEMv4 planet-map headers identify
+  albedo conventions and wavelength bands; Moon and Mars are normalized at V.
 - The datasource Hipparcos loader is available at
   `starfield::catalogs::hipparcos::catalog::HipparcosCatalog`; the pre-existing
   `starfield::catalogs::hipparcos::HipparcosCatalog` retains its original type.

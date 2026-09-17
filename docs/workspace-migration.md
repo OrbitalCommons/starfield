@@ -2,9 +2,9 @@
 
 The 0.17 family joins Starfield and the active `meawoppl/initial-workspace`
 branch of starfield-datasources. The original datasource history is preserved verbatim under the
-`datasources-history/12f24d1` tag in this repository. The migration PR has a single
+`datasources-history/0711def` tag in this repository. The migration PR has a single
 parent so it follows Starfield's squash-only merge policy; use
-`git log datasources-history/12f24d1` to inspect the original source history. `starfield-datastore` remains an independently versioned dependency.
+`git log datasources-history/0711def` to inspect the original source history. `starfield-datastore` remains an independently versioned dependency.
 
 ## Consumer API
 
@@ -72,23 +72,51 @@ The independently versioned datastore is intentionally outside this rule.
 
 ## Repository transition
 
-The imported head is `12f24d109b936e81476bbe0fad127661d5546eea`. It includes
-the Moon tier, NSA exception documentation, and indicatif update. The remaining
+The imported head is `0711deff6760b8be96f7bfab35329d76ae6027fe`. It includes
+the Moon tier, NSA exception documentation, indicatif update, and SFEMv4 albedo
+convention and wavelength-band metadata with V-band normalization. The remaining
 open datasource PRs at import are #54 (extended bright-galaxy cones) and #59
 (agent-instruction rename). Port #54 to this workspace before retiring its
 branch; #59 is superseded by the unified root AGENTS.md.
 
-The final cutover is waiting for datasource PR #82 (SFEMv4 albedo conventions
-and wavelength-band metadata). Import its final merged SHA, preserve that
-history under a corresponding tag, and revalidate the tier binaries before
-marking the migration ready.
+The datasource agent confirmed this is the final cutover after PR #82, with
+no further work in flight. All 11 imported data files match that tree byte-for-byte.
 
 After this PR is validated and merged, verify the automatic 0.17 publication,
 then migrate focalplane, cfl-foundations/shared, zodiacal, and planet9 to the
-facade. Transfer still-open datasource issues and add a redirect README before
+facade. All 13 open datasource issues have been transferred (see below). Add a redirect README before
 archiving the old repository. Do not archive while the release or PR migration
 is outstanding.
 
 Embedded assets remain embedded in this release, preserving offline behavior.
 Moving large tiers to digest-pinned datastore artifacts is a separate behavior
 change that needs explicit prefetch/offline semantics and small hermetic fixtures.
+
+
+## Transferred issues
+
+GitHub transfers preserve discussions and redirect the old URLs. The old
+repository has no remaining open issues as of this cutover.
+
+| Previous issue | Starfield issue | Work |
+| --- | --- | --- |
+| [#80](https://github.com/OrbitalCommons/starfield-datasources/issues/80) | [#200](https://github.com/OrbitalCommons/starfield/issues/200) | Enable workspace-wide clippy for all targets |
+| [#73](https://github.com/OrbitalCommons/starfield-datasources/issues/73) | [#201](https://github.com/OrbitalCommons/starfield/issues/201) | reflectance-library: FreshSnow and DesertSoil from the ECOSTRESS/ASTER library |
+| [#71](https://github.com/OrbitalCommons/starfield-datasources/issues/71) | [#202](https://github.com/OrbitalCommons/starfield/issues/202) | reflectance-library: seasonal green/dry vegetation fraction from MOD13C2 |
+| [#67](https://github.com/OrbitalCommons/starfield-datasources/issues/67) | [#203](https://github.com/OrbitalCommons/starfield/issues/203) | reflectance-library: Venus cloud-top reflectance endmember |
+| [#66](https://github.com/OrbitalCommons/starfield-datasources/issues/66) | [#204](https://github.com/OrbitalCommons/starfield/issues/204) | reflectance-library: Mars bright and dark terrain endmembers from CRISM/OMEGA |
+| [#65](https://github.com/OrbitalCommons/starfield-datasources/issues/65) | [#205](https://github.com/OrbitalCommons/starfield/issues/205) | reflectance-library: lunar mare and highland endmembers from RELAB/LSCC |
+| [#60](https://github.com/OrbitalCommons/starfield-datasources/issues/60) | [#206](https://github.com/OrbitalCommons/starfield/issues/206) | AMPEL broker endpoints unreachable: ampel.zeuthen.desy.de no longer resolves in DNS |
+| [#35](https://github.com/OrbitalCommons/starfield-datasources/issues/35) | [#207](https://github.com/OrbitalCommons/starfield/issues/207) | starfield-nsa: NsaEntry surface area gaps for high-quality galaxy rendering |
+| [#6](https://github.com/OrbitalCommons/starfield-datasources/issues/6) | [#208](https://github.com/OrbitalCommons/starfield/issues/208) | Add CRTS (Catalina Real-Time Transient Survey) footprint and depth data |
+| [#5](https://github.com/OrbitalCommons/starfield-datasources/issues/5) | [#209](https://github.com/OrbitalCommons/starfield/issues/209) | Add OSSOS survey characterization data loader |
+| [#4](https://github.com/OrbitalCommons/starfield-datasources/issues/4) | [#210](https://github.com/OrbitalCommons/starfield/issues/210) | Add DES (Dark Energy Survey) data access client |
+| [#3](https://github.com/OrbitalCommons/starfield-datasources/issues/3) | [#211](https://github.com/OrbitalCommons/starfield/issues/211) | Add Pan-STARRS DR2 catalog queries to starfield-mast |
+| [#2](https://github.com/OrbitalCommons/starfield-datasources/issues/2) | [#212](https://github.com/OrbitalCommons/starfield/issues/212) | Add IRSA client (ZTF, WISE, 2MASS archive access) |
+
+The datasource maintainer flagged #201 (formerly #73) as a human acquisition
+step: request the ECOSTRESS Water and Soil archive categories from
+https://speclib.jpl.nasa.gov/download, then feed the emailed archives to the
+build script through a local path. The optional Lunar category also helps
+#205. This scientific-data work remains open; importing the existing tiers
+must not be mistaken for validating Earth's snow/soil endmembers.

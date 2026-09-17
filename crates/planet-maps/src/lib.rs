@@ -40,8 +40,8 @@ pub mod products;
 pub mod tier;
 
 pub use tier::{
-    earth_tier, mars_tier, moon_tier, AbundanceTier, Registration, EARTH_TIER_GZ, MARS_TIER_GZ,
-    MOON_TIER_GZ,
+    earth_tier, mars_tier, moon_tier, AbundanceTier, AlbedoConvention, Registration, EARTH_TIER_GZ,
+    MARS_TIER_GZ, MOON_TIER_GZ,
 };
 
 pub use products::{require_product_for, MapProduct, PRODUCTS, USGS_MOSAIC_BASE_URL};
