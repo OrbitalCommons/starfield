@@ -1,5 +1,19 @@
 # Starfield
 
+Starfield is a single workspace and release family. Depend on the facade:
+
+```toml
+starfield = { version = "0.17", features = ["catalogs", "jpl"] }
+```
+
+The default enables core calculations and datastore support. Optional groups
+are `catalogs`, `jpl`, and `surfaces`; individual features such as `hipparcos`
+let small consumers avoid unrelated dependencies. Python reference testing is
+separate (`cargo test -p starfield-core --features python-tests`).
+
+See [the workspace migration guide](docs/workspace-migration.md) for feature
+names, compatibility changes, and the first coordinated release checklist.
+
 Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms inspired by Skyfield.
 
 ## Features
@@ -74,7 +88,7 @@ Starfield provides optional Python interoperability for comparing results with t
 
 ```bash
 # Enable Python comparison tests
-cargo test --features python-tests
+cargo test -p starfield-core --features python-tests -- --test-threads=1
 
 # Run example comparing Rust calculations with Skyfield
 cargo run --example skyfield_comparison --features python-tests

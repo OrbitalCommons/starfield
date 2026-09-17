@@ -1,0 +1,15 @@
+[package]
+name = "starfield-sbdb"
+version.workspace = true
+description = "NASA JPL Small-Body Database API client — asteroid/comet orbital data, close approaches, impact risk"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+starfield-core = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }

@@ -51,6 +51,9 @@ jobs:
         with:
           shared-key: "starfield-build-cache"
 
+      - name: Check lockstep dependencies
+        run: python3 devops/check_workspace.py
+
       - name: Find crate versions not yet on crates.io
         id: plan
         run: |
@@ -89,7 +92,6 @@ jobs:
           cargo publish "${args[@]}"
 
       - name: Tag and create the GitHub release
-        if: steps.plan.outputs.packages != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

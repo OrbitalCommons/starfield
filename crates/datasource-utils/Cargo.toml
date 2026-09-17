@@ -1,0 +1,18 @@
+[package]
+name = "starfield-datasource-utils"
+version.workspace = true
+description = "Shared utilities for starfield datasource crates"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+starfield-core = { workspace = true }
+starfield-datastore.workspace = true
+url.workspace = true
+tempfile.workspace = true
+reqwest = { workspace = true }
+sha2 = "0.11.0"
+
+[dev-dependencies]
+tempfile = "3.26.0"

@@ -2,111 +2,62 @@ name: Rust CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    name: Test Suite
+    name: Workspace tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: python3 devops/check_workspace.py
+      - run: cargo clippy --workspace --features starfield/all-data -- -D warnings
+      - run: cargo test --workspace --features starfield/all-data
+      - run: cargo clippy -p starfield-core -p starfield --no-default-features -- -D warnings
+      - run: cargo test -p starfield-core -p starfield --no-default-features
+      - name: Datasource integration tests
+        run: cargo test -p starfield-datasources --all-features
+      - name: Check data generation scripts
+        run: python3 -m py_compile crates/reflectance-library/scripts/build_table.py crates/solar-spectrum/scripts/build_table.py
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "starfield-build-cache"
-
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Run clippy without default features
-        run: cargo clippy --no-default-features -- -D warnings
-
-      - name: Run standard tests
-        run: cargo test
-
-      - name: Run tests without default features
-        run: cargo test --no-default-features
+  facade:
+    name: Facade feature isolation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "hipparcos", "catalogs", "jpl", "surfaces"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p starfield --no-default-features --features "${{ matrix.features }}"
+      - run: cargo test -p starfield --no-default-features --features "${{ matrix.features }}" --test facade
 
   python-comparison:
-    name: Python Comparison Tests
+    name: Python comparison tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Install Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      - name: Install Skyfield and AstroPy
+      - name: Install references
+        run: pip install "skyfield==$(cat .skyfield-version)" "astropy==$(cat .astropy-version)" "spiceypy==$(cat .spiceypy-version)" scipy
+      - uses: Swatinem/rust-cache@v2
+      - name: Compare core with Python references
         run: |
-          pip install "skyfield==$(cat .skyfield-version)" "astropy==$(cat .astropy-version)" \
-            "spiceypy==$(cat .spiceypy-version)" scipy
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "starfield-build-cache"
-
-      - name: Run Python comparison tests
-        run: |
-          # Set Python environment variables for tests
           export PYO3_PYTHON=$(which python)
-          export PYTHONPATH=$(pwd)
-          export PYTHON_SYS_EXECUTABLE=$(which python)
-          export PYTHON_COMMAND=$(which python)
-          
-          # Run tests with the python-tests feature flag
-          RUST_LOG=debug cargo test --features python-tests
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "starfield-build-cache"
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Run examples
-        run: |
-          for example in $(cargo run --example 2>&1 | grep -oP '(?<=Available examples:).*' | tr -d ' ' | tr ',' '\n'); do
-            echo "Running example: $example"
-            cargo run --example $example || echo "Example $example failed but continuing..."
-          done
+          cargo test -p starfield-core --features python-tests -- --test-threads=1
+      - name: Compile Python examples through the facade
+        run: cargo check -p starfield --features python-tests --examples

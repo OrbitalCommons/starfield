@@ -89,5 +89,5 @@ at the archives (`#[ignore = "live upstream; must bypass the mirror and
 cache…"]`) and fail, never skip, when `STARFIELD_ALLOW_UPSTREAM=1` is unset:
 
 ```
-STARFIELD_ALLOW_UPSTREAM=1 cargo test -- --ignored naif_leap_seconds_kernel_resolves_cold_from_upstream
+STARFIELD_ALLOW_UPSTREAM=1 cargo test -p starfield-core -- --ignored naif_leap_seconds_kernel_resolves_cold_from_upstream
 ```

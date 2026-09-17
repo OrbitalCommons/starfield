@@ -1,0 +1,29 @@
+[package]
+name = "starfield-nsa"
+version.workspace = true
+description = "NASA-Sloan Atlas (NSA) galaxy catalog loader and downloader"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Opts in to loading the per-entry radial-profile and Stokes-isophote arrays
+# (PROFTHETA, PROFMEAN, PROFMEAN_IVAR, QSTOKES, USTOKES, BASTOKES, PHISTOKES).
+# Adds ~2.6 KB/entry × 640k galaxies ≈ 1.6 GB of in-memory storage. Without
+# the feature these fields are absent from `NsaEntry` and the `RadialProfile`
+# trait impl is omitted; callers that only need photometry / cheap morphology
+# don't pay for it.
+radial-profiles = []
+
+[dependencies]
+starfield-core = { workspace = true, features = ["photometry"] }
+serde = { workspace = true }
+thiserror = { workspace = true }
+nalgebra = { workspace = true }
+fitsio-pure = { workspace = true }
+reqwest = { workspace = true }
+starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+
+[dev-dependencies]
+tempfile = "3"

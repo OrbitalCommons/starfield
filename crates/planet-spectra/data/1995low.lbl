@@ -1,0 +1,132 @@
+PDS_VERSION_ID                = PDS3                                          
+RECORD_TYPE                   = FIXED_LENGTH                                  
+RECORD_BYTES                  = 54                                            
+FILE_RECORDS                  = 1875                                          
+^TABLE                        = "1995LOW.TAB"                                 
+DATA_SET_ID                   = "ESO-J/S/N/U-SPECTROPHOTOMETER-4-V2.0"        
+INSTRUMENT_HOST_NAME          = "EUROPEAN SOUTHERN OBSERVATORY"               
+INSTRUMENT_NAME               = "BOLLER & CHIVENS SPECTROGRAPH"               
+TARGET_NAME                   = {JUPITER, SATURN, URANUS, NEPTUNE, TITAN}     
+START_TIME                    =  1995-07-06                                   
+STOP_TIME                     =  1995-07-10                                   
+PRODUCT_NAME                  = "Methane Spectrophotometry of the Jovian      
+      Planets at 300- to 1050-nm, low res"                                    
+PRODUCT_ID                    = "1995LOW.TAB"                                 
+PRODUCT_CREATION_TIME         =  1998-12-17                                   
+                                                                              
+NOTE = "SPECTRA OF METHANE, JOVIAN PLANETS, AND TITAN 1995                    
+Low-resolution data from:                                                     
+Methane, Ammonia, and Temperature Measurements                                
+of the Jovian Planets and Titan from CCD-Spectrophotometry                    
+by Erich Karkoschka (ICARUS 1998). The full disk albedo is the I/F averaged   
+over the planet's disk at some specific phase angle, while the geometric      
+albedo is the full disk albedo at zero phase angle.  The indirect             
+determination of methane absorption coefficients is described by              
+Karkoschka and Tomasko (1992) ICARUS 97, 161-181."                            
+                                                                              
+OBJECT                        = TABLE                                         
+  INTERCHANGE_FORMAT            = ASCII                                       
+  ROWS                          = 1875                                        
+  COLUMNS                       = 8                                           
+  ROW_BYTES                     = 54                                          
+  NAME   = "Spectra of Methane, Jovian Planets and Titan 1995, low res"       
+  DESCRIPTION        = "300-1050 nm, 1 nm resolution, 0.4 nm sampling"        
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "VACUUM WAVELENGTH"                            
+    COLUMN_NUMBER            = 1                                              
+    UNIT                     = "NANOMETER"                                    
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 1                                              
+    BYTES                    = 6                                              
+    FORMAT                   = "F6.1"                                         
+    DESCRIPTION              = "                                              
+            Vacuum wavelength in nanometers."                                 
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "AIR WAVELENGTH"                               
+    COLUMN_NUMBER            = 2                                              
+    UNIT                     = "NANOMETER"                                    
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 9                                              
+    BYTES                    = 6                                              
+    FORMAT                   = "F6.2"                                         
+    DESCRIPTION              = "                                              
+            Air wavelength in nanometers."                                    
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "METHANE ABSORPTION COEFFICIENT"               
+    COLUMN_NUMBER            = 3                                              
+    UNIT                     = "1/(KM-AMAGAT)"                                
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 16                                             
+    BYTES                    = 7                                              
+    FORMAT                   = "F7.4"                                         
+    DESCRIPTION              = "                                              
+  Estimated methane absorption coefficient in units of 1/km-amagat."          
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "JUPITER ALBEDO"                               
+    COLUMN_NUMBER            = 4                                              
+    UNIT                     = "NULL"                                         
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 24                                             
+    FORMAT                   = "F5.4"                                         
+    BYTES                    = 5                                              
+    DESCRIPTION              = "                                              
+            Full disk albedo of Jupiter at phase angle 6.8 deg."              
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "SATURN ALBEDO"                                
+    COLUMN_NUMBER            = 5                                              
+    UNIT                     = "NULL"                                         
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 30                                             
+    FORMAT                   = "F5.4"                                         
+    BYTES                    = 5                                              
+    DESCRIPTION              = "                                              
+     Full disk albedo of Saturn at phase angle 5.7 deg and zero ring tilt."   
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "URANUS ALBEDO"                                
+    COLUMN_NUMBER            = 6                                              
+    UNIT                     = "NULL"                                         
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 36                                             
+    FORMAT                   = "F5.4"                                         
+    BYTES                    = 5                                              
+    DESCRIPTION              = "                                              
+            Geometric albedo of Uranus."                                      
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "NEPTUNE ALBEDO"                               
+    COLUMN_NUMBER            = 7                                              
+    UNIT                     = "NULL"                                         
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 42                                             
+    FORMAT                   = "F5.4"                                         
+    BYTES                    = 5                                              
+    DESCRIPTION              = "                                              
+            Geometric albedo of Neptune."                                     
+  END_OBJECT               = COLUMN                                           
+                                                                              
+  OBJECT                   = COLUMN                                           
+    NAME                     = "TITAN ALBEDO"                                 
+    COLUMN_NUMBER            = 8                                              
+    UNIT                     = "NULL"                                         
+    DATA_TYPE                = ASCII_REAL                                     
+    START_BYTE               = 48                                             
+    FORMAT                   = "F5.4"                                         
+    BYTES                    = 5                                              
+    DESCRIPTION              = "                                              
+            Full disk albedo of Titan at phase angle 5.7 deg."                
+  END_OBJECT               = COLUMN                                           
+                                                                              
+END_OBJECT                    = TABLE                                         
+END                                                                           

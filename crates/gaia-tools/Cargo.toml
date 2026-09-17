@@ -1,0 +1,27 @@
+[package]
+name = "starfield-gaia-tools"
+version.workspace = true
+description = "Command-line tools for the starfield-gaia ecosystem (excerpt + sharding)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "gaia-excerpt"
+path = "src/main.rs"
+
+[[bin]]
+name = "hipparcos-gaia-match"
+path = "src/bin/hipparcos_gaia_match.rs"
+
+[dependencies]
+starfield-core = { workspace = true }
+starfield-gaia = { version = "=0.17.0", path = "../gaia", features = ["all-releases"] }
+starfield-hipparcos = { version = "=0.17.0", path = "../hipparcos" }
+starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+clap = { workspace = true }
+indicatif = { workspace = true }
+nalgebra = { workspace = true }
+flate2 = { workspace = true }
+cdshealpix = { workspace = true }
+plotters = { workspace = true }

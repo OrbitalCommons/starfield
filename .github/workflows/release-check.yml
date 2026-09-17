@@ -41,5 +41,11 @@ jobs:
             exit 1
           fi
 
+      - name: Check lockstep dependencies
+        run: python3 devops/check_workspace.py
+
       - name: Package every publishable crate
         run: cargo publish --dry-run --workspace
+
+      - name: Enforce archive budgets
+        run: python3 devops/check_workspace.py --packages
