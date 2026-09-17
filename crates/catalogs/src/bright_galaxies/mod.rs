@@ -217,13 +217,79 @@ impl BrightGalaxyCatalog {
         self.by_name.insert(entry.name.clone(), entry);
     }
 
-    /// Galaxies whose `(ra, dec)` falls inside `cone`.
+    /// Galaxies whose `(ra, dec)` centre falls inside `cone`.
+    ///
+    /// This is a centre-only test — it ignores the galaxy's angular
+    /// extent. For most catalogs that's the right thing (sources are
+    /// arcsec-scale), but several supplement entries (M31, LMC, …) span
+    /// degrees and can have their outer envelope reach into a query
+    /// cone whose centre sits well outside the galaxy. Use
+    /// [`Self::in_cone_extended`] when angular extent matters.
     pub fn in_cone(&self, cone: &Cone) -> Vec<&BrightGalaxy> {
         self.by_name
             .values()
             .filter(|g| cone.contains_radec_deg(g.ra_deg, g.dec_deg))
             .collect()
     }
+
+    /// Galaxies whose Sérsic envelope (truncated where `I/I_e ≤
+    /// sb_fraction`) overlaps `cone`. A galaxy is returned when the
+    /// great-circle distance from `cone`'s centre to the galaxy's
+    /// centre is at most `cone.radius + galaxy_truncation_radius`.
+    ///
+    /// `sb_fraction` controls the truncation: `1e-3` is a coverage
+    /// default that matches the asinh-stretch visibility floor of
+    /// typical previews; `1e-4` matches the deeper truncation budget a
+    /// flux-conserving renderer (`SersicSplat` and friends) uses.
+    /// Smaller fractions → bigger extents → more galaxies returned.
+    ///
+    /// Galaxies without a Sérsic profile (none today, but the trait
+    /// allows it) collapse to the centre-only test.
+    ///
+    /// Cost is `O(N)` over the catalog — fine for the ~45-row
+    /// supplement; callers with a million-row catalog should still
+    /// pre-filter on a cheaper bounding box.
+    pub fn in_cone_extended(&self, cone: &Cone, sb_fraction: f64) -> Vec<&BrightGalaxy> {
+        self.by_name
+            .values()
+            .filter(|g| cone_overlaps_galaxy(cone, g, sb_fraction))
+            .collect()
+    }
+}
+
+/// Truncation radius (in arcsec, along the major axis) at which the
+/// Sérsic surface brightness drops to `frac · I_e`. Closed-form inverse
+/// of the Sérsic SB expression: `r = θ_eff · ((-ln frac) / b_n + 1)^n`.
+fn sersic_radius_at_fraction(profile: &SersicProfile, frac: f64) -> f64 {
+    let bn = profile.b_n();
+    let raw = -(frac.ln()) / bn + 1.0;
+    profile.theta_half_arcsec * raw.powf(profile.n)
+}
+
+/// Does the cone overlap the galaxy's Sérsic envelope (truncated at
+/// `sb_fraction`)? True when the angular distance from `cone.centre` to
+/// the galaxy centre is at most `cone.radius + galaxy_extent`.
+fn cone_overlaps_galaxy(cone: &Cone, g: &BrightGalaxy, sb_fraction: f64) -> bool {
+    let extent_arcsec = g
+        .sersic_profile()
+        .map(|p| sersic_radius_at_fraction(&p, sb_fraction))
+        .unwrap_or(0.0);
+    let extent_rad = (extent_arcsec / 3600.0).to_radians();
+    let total_radius_rad = cone.radius_rad + extent_rad;
+    // Saturate at the half-sphere — a `total_radius_rad ≥ π` cone
+    // covers the whole sky and `cos(π) = -1` already passes any
+    // dot-product test, but going past π would wrap and break the
+    // comparison.
+    if total_radius_rad >= std::f64::consts::PI {
+        return true;
+    }
+    let cos_total = total_radius_rad.cos();
+    let dec_g = g.dec_deg.to_radians();
+    let ra_g = g.ra_deg.to_radians();
+    let dec_c = cone.dec_rad;
+    let ra_c = cone.ra_rad;
+    let cos_dist = dec_g.sin() * dec_c.sin() + dec_g.cos() * dec_c.cos() * (ra_g - ra_c).cos();
+    cos_dist >= cos_total
 }
 
 fn parse_f64(s: &str, label: &str, source: &str, lineno: usize) -> Result<f64> {
