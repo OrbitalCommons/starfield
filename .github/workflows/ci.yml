@@ -21,6 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: python3 devops/check_workspace.py
+      - run: python3 -m unittest discover -s devops -p test_publish_workspace.py
       - run: cargo clippy --workspace --features starfield/all-data -- -D warnings
       - run: cargo test --workspace --features starfield/all-data
       - run: cargo clippy -p starfield-core -p starfield --no-default-features -- -D warnings
