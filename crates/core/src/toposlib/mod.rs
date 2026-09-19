@@ -23,6 +23,11 @@
 use nalgebra::Vector3;
 use std::f64::consts::PI;
 
+pub mod scalar;
+pub use scalar::{
+    altaz_from_ha_dec, format_dms, format_hms, ha_dec_from_alt_az, hour_angle, parse_dms, parse_hms,
+};
+
 use crate::constants::{
     AU_M, DAY_S, EARTH_ANGVEL, EARTH_RADIUS, IERS_2010_INVERSE_EARTH_FLATTENING,
 };
