@@ -10,6 +10,9 @@
   iteration. Preserve unsupported-type diagnostics across merged files.
 - Route Mars, Saturn, Uranus, Neptune and Pluto satellite SPKs through the
   NAIF satellite artifact namespace, alongside Jupiter.
+- Add canonical names for all 98 bodies with radii or rotation constants in
+  `pck00011.tpc`, including Titan, Enceladus, Triton and Titania.
+- Document the shared datastore upstream opt-in on both PCK loaders.
 - Document the existing text-PCK loader for satellite radii and frames, and
   add a Mars-to-Io observation example.
 

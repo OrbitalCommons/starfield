@@ -234,6 +234,10 @@ impl Loader {
     /// use numeric NAIF IDs with `radii()` and `frame_for()`. Constants that
     /// the file does not supply still return `None` or an error.
     ///
+    /// With the datastore feature, an uncached file needs a configured mirror
+    /// or `STARFIELD_ALLOW_UPSTREAM=1` to permit downloading from NAIF, just
+    /// like [`Self::open`]. Text and binary PCKs use the same cache policy.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -258,6 +262,10 @@ impl Loader {
     /// Hand the result to
     /// [`PlanetaryConstants::read_binary`](planetarylib::PlanetaryConstants::read_binary)
     /// to build frames from it.
+    ///
+    /// With the datastore feature, an uncached file needs a configured mirror
+    /// or `STARFIELD_ALLOW_UPSTREAM=1` to permit downloading from NAIF, just
+    /// like [`Self::open`]. Text and binary PCKs use the same cache policy.
     ///
     /// # Example
     ///
