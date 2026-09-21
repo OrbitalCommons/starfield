@@ -8,8 +8,8 @@ repository.workspace = true
 
 [dependencies]
 starfield-core = { workspace = true }
-starfield-gaia = { version = "=0.17.0", path = "../gaia" }
-starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+starfield-gaia = { version = "=0.17.1", path = "../gaia" }
+starfield-datasource-utils = { version = "=0.17.1", path = "../datasource-utils" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }

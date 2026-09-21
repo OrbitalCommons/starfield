@@ -12,4 +12,4 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+starfield-datasource-utils = { version = "=0.17.1", path = "../datasource-utils" }

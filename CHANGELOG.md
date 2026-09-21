@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.1
+
+- Combine local SPK files with `SpiceKernel::open_many` or `merge`, and named
+  datastore kernels with `Loader::open_many`, so observers and targets can
+  span planetary and satellite kernels.
+- Prefer the latest covering segment for overlapping center/target pairs;
+  retain earlier coverage outside later segments, including during light-time
+  iteration. Preserve unsupported-type diagnostics across merged files.
+- Route Mars, Saturn, Uranus, Neptune and Pluto satellite SPKs through the
+  NAIF satellite artifact namespace, alongside Jupiter.
+- Add canonical names for all 98 bodies with radii or rotation constants in
+  `pck00011.tpc`, including Titan, Enceladus, Triton and Titania.
+- Document the shared datastore upstream opt-in on both PCK loaders.
+- Document the existing text-PCK loader for satellite radii and frames, and
+  add a Mars-to-Io observation example.
+
 ## 0.17.0
 
 - Join starfield and starfield-datasources into one history-preserving workspace,

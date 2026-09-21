@@ -9,5 +9,5 @@ repository.workspace = true
 [dependencies]
 flate2.workspace = true
 starfield-core = { workspace = true }
-starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
-starfield-reflectance-library = { version = "=0.17.0", path = "../reflectance-library" }
+starfield-datasource-utils = { version = "=0.17.1", path = "../datasource-utils" }
+starfield-reflectance-library = { version = "=0.17.1", path = "../reflectance-library" }

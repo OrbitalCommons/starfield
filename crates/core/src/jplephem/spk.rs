@@ -42,12 +42,13 @@ pub const SUPPORTED_DATA_TYPES: [i32; 3] = [2, 3, 21];
 
 /// Spacecraft Planet Kernel (SPK) file reader
 pub struct SPK {
-    /// The underlying DAF file
+    /// The first underlying DAF file (also after merging files).
     pub daf: Arc<DAF>,
-    /// Segments in the file
+    /// Segments in load order, including any merged files
     pub segments: Vec<Segment>,
     /// Map of (center, target) pairs to segment indices
     pairs: HashMap<(i32, i32), usize>,
+    additional_dafs: Vec<Arc<DAF>>,
 }
 
 /// A segment containing ephemeris data for a specific body pair
@@ -100,6 +101,7 @@ impl SPK {
             daf,
             segments: Vec::new(),
             pairs: HashMap::new(),
+            additional_dafs: Vec::new(),
         };
 
         spk.parse_segments()?;
@@ -114,6 +116,7 @@ impl SPK {
             daf,
             segments: Vec::new(),
             pairs: HashMap::new(),
+            additional_dafs: Vec::new(),
         };
 
         spk.parse_segments()?;
@@ -172,6 +175,50 @@ impl SPK {
         }
 
         Ok(())
+    }
+
+    /// Append segments without copying their backing data. Later segments win.
+    pub(crate) fn append(&mut self, other: Self) {
+        self.additional_dafs.push(other.daf);
+        self.additional_dafs.extend(other.additional_dafs);
+        for segment in other.segments {
+            self.pairs
+                .insert((segment.center, segment.target), self.segments.len());
+            self.segments.push(segment);
+        }
+    }
+
+    /// Source files in load order, retained for diagnostics.
+    pub(crate) fn dafs(&self) -> impl Iterator<Item = &Arc<DAF>> {
+        std::iter::once(&self.daf).chain(self.additional_dafs.iter())
+    }
+
+    /// Select the last segment for this pair that covers the requested epoch.
+    /// A later, shorter kernel must not hide an earlier kernel's outer coverage.
+    pub(crate) fn segment_at_mut(
+        &mut self,
+        center: i32,
+        target: i32,
+        et: f64,
+    ) -> Result<&mut Segment> {
+        let latest = *self
+            .pairs
+            .get(&(center, target))
+            .ok_or(JplephemError::BodyNotFound { center, target })?;
+        let index = self.segments.iter().rposition(|segment| {
+            segment.center == center
+                && segment.target == target
+                && segment.start_second <= et
+                && et <= segment.end_second
+        });
+        match index {
+            Some(index) => Ok(&mut self.segments[index]),
+            None => Err(JplephemError::OutOfRangeError {
+                jd: seconds_to_jd(et),
+                start_jd: self.segments[latest].start_jd,
+                end_jd: self.segments[latest].end_jd,
+            }),
+        }
     }
 
     /// Get the segment for the given center and target body IDs

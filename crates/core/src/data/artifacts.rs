@@ -72,7 +72,7 @@ fn key(text: String) -> Result<ArtifactKey> {
 /// The artifact for a SPICE kernel named the way `Loader::open` and friends
 /// name it: `de421.bsp`, `pck00011.tpc`, `moon_080317.tf`, `naif0012.tls`.
 ///
-/// Keys are `naif/spk/<file>` (`naif/spk/satellites/<file>` for the `jup*`
+/// Keys are `naif/spk/<file>` (`naif/spk/satellites/<file>` for planetary
 /// satellite ephemerides), `naif/pck/<file>`, `naif/fk/<file>` and
 /// `naif/lsk/<file>`; sources follow [`crate::data::resolve_url`]. `None`
 /// for an extension starfield does not recognise.
@@ -81,7 +81,7 @@ pub fn kernel_artifact(filename: &str) -> Option<Artifact> {
         return None;
     }
     let (subdir, base_url, check, kind) = if filename.ends_with(".bsp") {
-        if filename.starts_with("jup") {
+        if super::downloader::is_satellite_spk(filename) {
             (
                 "spk/satellites",
                 NAIF_SATELLITES_URL,
@@ -461,6 +461,24 @@ mod tests {
             assert_eq!(artifact.key.as_str(), key);
             assert_eq!(artifact.sources[0].url, format!("{base}{file}"));
             assert_eq!(artifact.provenance.license, KERNEL_LICENSE);
+        }
+        for file in [
+            "mar099.bsp",
+            "sat441.bsp",
+            "ura116xl.bsp",
+            "ura184_part-1.bsp",
+            "ura184_part-2.bsp",
+            "ura184_part-3.bsp",
+            "nep097.bsp",
+            "ura111xl-701.bsp",
+            "nep105.bsp",
+            "plu060.bsp",
+        ] {
+            let artifact = kernel_artifact(file).unwrap();
+            assert_eq!(artifact.key.as_str(), format!("naif/spk/satellites/{file}"));
+            let url = format!("{NAIF_SATELLITES_URL}{file}");
+            assert_eq!(artifact.sources[0].url, url);
+            assert_eq!(crate::data::resolve_url(file), Some(url));
         }
         assert!(kernel_artifact("hip_main.dat").is_none());
         assert!(kernel_artifact("../de421.bsp").is_none());

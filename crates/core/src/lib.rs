@@ -192,6 +192,24 @@ impl Loader {
         Ok(jplephem::SpiceKernel::open(path)?)
     }
 
+    /// Resolve several named SPK files through the datastore and combine them.
+    ///
+    /// Names are loaded in order: later files override overlapping segments
+    /// for the same center/target pair. See [`jplephem::SpiceKernel::open_many`].
+    ///
+    /// ```no_run
+    /// let loader = starfield_core::Loader::new();
+    /// let kernel = loader.open_many(&["de440s.bsp", "mar099.bsp", "jup365.bsp"])?;
+    /// # Ok::<(), starfield_core::StarfieldError>(())
+    /// ```
+    pub fn open_many(&self, filenames: &[&str]) -> Result<jplephem::SpiceKernel> {
+        let paths = filenames
+            .iter()
+            .map(|filename| data::download_or_cache(filename, self.data_dir.as_deref()))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(jplephem::SpiceKernel::open_many(&paths)?)
+    }
+
     /// Open a BSP file and return an Ephemeris, downloading if necessary.
     ///
     /// # Example
@@ -210,6 +228,15 @@ impl Loader {
     /// Text kernels are the plain-text `.tpc` and `.tf` files, such as
     /// `pck00011.tpc`. The file is looked up in `data_dir` (if set) or in
     /// `~/.cache/starfield/`.
+    ///
+    /// The embedded IAU table covers the Sun, eight planets, Moon and Pluto.
+    /// Loading `pck00011.tpc` adds its satellite radii and rotational elements;
+    /// use numeric NAIF IDs with `radii()` and `frame_for()`. Constants that
+    /// the file does not supply still return `None` or an error.
+    ///
+    /// With the datastore feature, an uncached file needs a configured mirror
+    /// or `STARFIELD_ALLOW_UPSTREAM=1` to permit downloading from NAIF, just
+    /// like [`Self::open`]. Text and binary PCKs use the same cache policy.
     ///
     /// # Example
     ///
@@ -235,6 +262,10 @@ impl Loader {
     /// Hand the result to
     /// [`PlanetaryConstants::read_binary`](planetarylib::PlanetaryConstants::read_binary)
     /// to build frames from it.
+    ///
+    /// With the datastore feature, an uncached file needs a configured mirror
+    /// or `STARFIELD_ALLOW_UPSTREAM=1` to permit downloading from NAIF, just
+    /// like [`Self::open`]. Text and binary PCKs use the same cache policy.
     ///
     /// # Example
     ///

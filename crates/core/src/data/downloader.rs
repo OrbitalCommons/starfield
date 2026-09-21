@@ -195,7 +195,7 @@ fn decompress_gzip<P: AsRef<Path>, Q: AsRef<Path>>(gz_path: P, output_path: Q) -
 /// Recognized patterns:
 ///
 /// - `*.bsp` — SPK ephemerides, from JPL, or from the NAIF satellite
-///   directory when the name starts with `jup`
+///   directory for Mars, Jupiter, Saturn, Uranus, Neptune and Pluto
 /// - `*.tpc`, `*.bpc` — text and binary PCK kernels, from [`NAIF_PCK_URL`]
 /// - `*.tf` — text frame kernels, from [`NAIF_FK_SATELLITES_URL`]
 /// - `*.tls` — leap-second kernels, from [`NAIF_LSK_URL`]
@@ -205,7 +205,7 @@ pub fn resolve_url(filename: &str) -> Option<String> {
     }
 
     if filename.ends_with(".bsp") {
-        let base = if filename.starts_with("jup") {
+        let base = if is_satellite_spk(filename) {
             NAIF_SATELLITES_URL
         } else {
             JPL_BSP_URL
@@ -226,6 +226,14 @@ pub fn resolve_url(filename: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Whether a filename follows NAIF's planetary-satellite SPK naming scheme.
+pub(crate) fn is_satellite_spk(filename: &str) -> bool {
+    filename.ends_with(".bsp")
+        && ["mar", "jup", "sat", "ura", "nep", "plu"]
+            .iter()
+            .any(|prefix| filename.starts_with(prefix))
 }
 
 /// Download a file from URL to a local path, showing a progress bar.
@@ -463,6 +471,26 @@ mod tests {
                     .to_string()
             )
         );
+    }
+
+    #[test]
+    fn test_resolve_url_other_satellite_systems() {
+        for name in [
+            "mar099.bsp",
+            "sat441.bsp",
+            "ura184_part-1.bsp",
+            "ura184_part-2.bsp",
+            "ura184_part-3.bsp",
+            "ura111xl-701.bsp",
+            "nep097.bsp",
+            "nep105.bsp",
+            "plu060.bsp",
+        ] {
+            assert_eq!(
+                resolve_url(name),
+                Some(format!("{NAIF_SATELLITES_URL}{name}"))
+            );
+        }
     }
 
     #[test]
