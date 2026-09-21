@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 starfield-core = { workspace = true }
-starfield-gaia = { version = "=0.17.0", path = "../gaia" }
+starfield-gaia = { version = "=0.17.1", path = "../gaia" }
 serde = { workspace = true }
 flate2 = { workspace = true }
 nalgebra = { workspace = true }

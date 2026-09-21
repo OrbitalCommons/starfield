@@ -29,4 +29,4 @@ rand = { workspace = true }
 nalgebra = { workspace = true }
 arrow = { workspace = true }
 cdshealpix = { workspace = true }
-starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+starfield-datasource-utils = { version = "=0.17.1", path = "../datasource-utils" }

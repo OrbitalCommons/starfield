@@ -69,17 +69,17 @@ impl Position {
 /// The unsupported data type of a segment for `target_id`, if that is why the
 /// target could not be resolved.
 fn unsupported_data_type(kernel: &SpiceKernel, target_id: i32) -> Option<JplephemError> {
-    let daf = &kernel.spk().daf;
-    let summaries = daf.summaries().ok()?;
-
-    for (_, values) in summaries {
-        if values.len() < (daf.nd + daf.ni) as usize {
-            continue;
-        }
-        let target = values[2] as i32;
-        let data_type = values[5] as i32;
-        if target == target_id && !SUPPORTED_DATA_TYPES.contains(&data_type) {
-            return Some(JplephemError::UnsupportedDataType(data_type));
+    for daf in kernel.spk().dafs() {
+        let summaries = daf.summaries().ok()?;
+        for (_, values) in summaries {
+            if values.len() < (daf.nd + daf.ni) as usize {
+                continue;
+            }
+            let target = values[2] as i32;
+            let data_type = values[5] as i32;
+            if target == target_id && !SUPPORTED_DATA_TYPES.contains(&data_type) {
+                return Some(JplephemError::UnsupportedDataType(data_type));
+            }
         }
     }
     None

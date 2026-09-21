@@ -157,7 +157,7 @@ add more; a test that needs another kernel follows the pattern established by
 
 ## Workspace boundaries
 
-- All packages inherit version 0.17.0 from `[workspace.package]`; internal edges
+- All packages inherit the version from `[workspace.package]`; internal edges
   use an exact version and local path. Run `python3 devops/check_workspace.py`.
 - `starfield-core` owns shared traits and calculations. Datasources depend on
   core; core must not acquire a normal dependency on a datasource or facade.

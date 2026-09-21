@@ -13,7 +13,7 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 nalgebra = { workspace = true }
 flate2.workspace = true
-starfield-datasource-utils = { version = "=0.17.0", path = "../datasource-utils" }
+starfield-datasource-utils = { version = "=0.17.1", path = "../datasource-utils" }
 
 [dev-dependencies]
 tempfile = "3.26.0"

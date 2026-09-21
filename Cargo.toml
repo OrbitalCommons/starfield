@@ -4,13 +4,13 @@ members = ["crates/*"]
 default-members = ["crates/starfield"]
 
 [workspace.package]
-version = "0.17.0"
+version = "0.17.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/OrbitalCommons/starfield"
 
 [workspace.dependencies]
-starfield-core = { version = "=0.17.0", path = "crates/core", default-features = false, features = ["datastore"] }
+starfield-core = { version = "=0.17.1", path = "crates/core", default-features = false, features = ["datastore"] }
 starfield-datastore = "0.1.1"
 url = "2"
 tempfile = "3"
