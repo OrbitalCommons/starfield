@@ -36,8 +36,8 @@
 //!
 //! # Offline vs network
 //!
-//! [`diff_elements`] and everything it touches are pure and unit-tested
-//! offline. Only [`diff_against_live`] performs network lookups, and its
+//! [`crate::sbdb::snapshot::diff_elements`] and everything it touches are pure and unit-tested
+//! offline. Only [`crate::sbdb::snapshot::diff_against_live`] performs network lookups, and its
 //! test is `#[ignore]`d like the other live SBDB tests.
 //!
 //! # Example

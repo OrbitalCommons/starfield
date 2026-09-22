@@ -1,7 +1,7 @@
 //! ESA Gaia star catalog loaders and downloaders for DR1, DR2, and DR3.
 //!
-//! Each data release has its own [`Entry`] type exposing every field that release
-//! publishes, and its own [`Catalog`] type — none of them share a "lowest common
+//! Each data release has its own entry type exposing every field that release
+//! publishes, and its own catalog type — none of them share a "lowest common
 //! denominator" row format. The shared pieces (astrometry core, HTTP client, MD5
 //! verifier, Arrow CSV reader, in-memory catalog) live in [`common`] and [`download`]
 //! and are generic over the release marker via the [`GaiaRelease`] trait.
@@ -13,7 +13,7 @@
 //! - `dr3`: enable [`dr3`] module (DR3 `gaia_source`, adds RUWE, IPD, GSP-Phot, datalink flags)
 //! - `all-releases`: enable all three
 //!
-//! Default: `dr3`.
+//! Enabling `gaia` includes `dr3`; the catalogs package has no default sources.
 //!
 //! # Example
 //!

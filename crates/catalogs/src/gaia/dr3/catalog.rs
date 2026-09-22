@@ -1,4 +1,4 @@
-//! DR3 catalog newtype — thin wrapper over [`MemoryResidentCatalog`](crate::gaia::common::catalog::MemoryResidentCatalog).
+//! DR3 catalog newtype — thin wrapper over [`MemoryResidentCatalog`].
 
 use std::path::{Path, PathBuf};
 

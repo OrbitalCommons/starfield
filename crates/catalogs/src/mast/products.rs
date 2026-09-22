@@ -173,7 +173,7 @@ impl MastClient {
     ///
     /// `obsid` is the **internal numeric** id (the `obsid` column in
     /// CAOM, not the human-readable `obs_id`). Use
-    /// [`CaomObservation::obsid_string`] to extract it from a row, or
+    /// [`super::CaomObservation::obsid_string`] to extract it from a row, or
     /// pass the numeric value directly.
     pub fn data_products(&self, obsid: &str) -> Result<Vec<DataProduct>> {
         let params = json!({ "obsid": obsid });

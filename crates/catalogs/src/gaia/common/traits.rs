@@ -70,7 +70,7 @@ pub trait GaiaRelease: 'static {
     /// HTTP base URL for the CSV.gz catalog files.
     const BASE_URL: &'static str;
 
-    /// Filename within [`BASE_URL`] that holds the MD5 checksums for every file.
+    /// Filename within [`Self::BASE_URL`] that holds the MD5 checksums for every file.
     const MD5_FILENAME: &'static str;
 
     /// Regex matching valid per-release catalog filenames on the index page.
@@ -95,15 +95,15 @@ pub trait GaiaRelease: 'static {
     fn arrow_schema() -> SchemaRef;
 
     /// Build one entry from row `row` of `batch`. Columns are in the order declared
-    /// by [`arrow_schema`].
+    /// by [`Self::arrow_schema`].
     fn build_entry(batch: &RecordBatch, row: usize) -> Result<Self::Entry>;
 
-    /// Format an entry as one CSV row matching the column layout in [`arrow_schema`].
+    /// Format an entry as one CSV row matching the column layout in [`Self::arrow_schema`].
     /// Floats use Rust's default `Display` (full round-trip precision); `Option::None`
     /// becomes the empty string. Output is parseable by [`from_csv_file`](crate::gaia::common::catalog::MemoryResidentCatalog::from_csv_file).
     fn format_csv_row(entry: &Self::Entry) -> String;
 
-    /// Comma-joined header line listing every column in [`arrow_schema`] order.
+    /// Comma-joined header line listing every column in [`Self::arrow_schema`] order.
     fn csv_header() -> String {
         Self::arrow_schema()
             .fields()
