@@ -9,7 +9,7 @@ parent so it follows Starfield's squash-only merge policy; use
 ## Consumer API
 
 ```toml
-starfield = { version = "0.17", features = ["catalogs", "jpl"] }
+starfield = { version = "0.18", features = ["catalogs", "jpl"] }
 ```
 
 The facade re-exports core types rather than wrapping them. Existing
@@ -43,21 +43,63 @@ is at `starfield::catalogs::hipparcos::catalog::HipparcosCatalog`, alongside
 same core traits. Existing `catalogs::GaiaCatalog` remains available; the new
 release-specific Gaia loaders are under `catalogs::gaia`.
 
-`starfield-datasources` is retained as a compatibility facade, now on the same
-version as every other workspace crate. New consumers should use `starfield`.
-The implementation crates remain separate in this first migration. They can
-later fold into catalogs/JPL/surfaces groups behind these facade paths.
+## Moving from 0.17 to 0.18
+
+Version 0.18 folds the implementation crates into six published packages. Existing
+facade features and paths remain unchanged; direct dependencies on retired
+implementation crates must migrate. The 0.17.1 packages remain available for
+existing consumers, but receive no new lockstep releases.
+
+| Previous package(s) | New package | Facade feature and module |
+| --- | --- | --- |
+| `starfield-gaia`, `starfield-gaia-extended`, `starfield-bright-galaxies`, `starfield-hipparcos`, `starfield-mast`, `starfield-nsa` | `starfield-catalogs` | Matching source feature; `starfield::catalogs::<source>` |
+| `starfield-horizons`, `starfield-sbdb`, `starfield-mpc`, `starfield-rubin` | `starfield-jpl` | Matching source feature; `starfield::jpl::<source>` |
+| `starfield-planet-maps`, `starfield-reflectance-library`, `starfield-planet-spectra`, `starfield-solar-spectrum` | `starfield-surfaces` | Matching source feature; `starfield::surfaces::<source>` |
+| `starfield-datasource-utils` | `starfield-core` | `datastore`; `starfield::data::source_utils` |
+| `starfield-datasources` | `starfield` | Same source feature names; imports through the namespaces above |
+| `starfield-gaia-tools` | `starfield-tools` | Binary names unchanged |
+
+For example, replace `starfield-planet-maps = "0.17"` and
+`starfield-reflectance-library = "0.17"` with:
+
+```toml
+starfield = { version = "0.18", features = ["planet-maps", "reflectance-library"] }
+```
+
+Then replace imports with `starfield::surfaces::planet_maps` and
+`starfield::surfaces::reflectance_library`. For direct Hipparcos consumers,
+`starfield_hipparcos::HipparcosCatalog` becomes
+`starfield::catalogs::hipparcos::catalog::HipparcosCatalog`; the facade's existing
+core Hipparcos type remains at the shorter path, as described above.
+
+Each grouped library defaults to no datasource features. Direct group consumers
+can enable individual features (same names as the facade), or `all` for every
+source in that group. Prefer the facade to avoid coupling to package layout.
+Gaia release controls (`dr1`, `dr2`, `dr3`, `all-releases`) live on catalogs;
+`gaia` enables DR3, and the facade's `gaia-all` enables all releases. The
+`radial-profiles` feature still enables NSA's optional profile arrays.
+
+Source dependencies are explicit: extended Gaia, bright galaxies, and MAST use
+Gaia; planet maps use the reflectance library. Hipparcos alone does not enable
+Gaia's Arrow dependencies or NSA/MAST's FITS reader. Grouping does mean Cargo
+downloads a combined package archive: selecting a single surface source still
+downloads the shared archive, but only selected modules and their dependencies
+compile. All embedded tables and tiers remain byte-identical and work offline.
+
+Install tools with `cargo install starfield-tools`; existing scripts invoking
+`gaia-excerpt` or `hipparcos-gaia-match` need no binary-name changes.
 
 ## Development and publication
 
 - `cargo test --workspace --features starfield/all-data` runs core and datasource tests.
-- `cargo test -p starfield-datasources --all-features` includes pull-through tests.
+- `cargo test -p starfield --features all-data --test pullthrough` includes pull-through tests.
 - `cargo test -p starfield-core --features python-tests -- --test-threads=1`
   runs reference comparisons without making Python a normal consumer dependency.
+- `python3 devops/check_features.py` checks per-source dependency isolation.
 - `python3 devops/check_workspace.py` verifies the single version and exact local edges.
 - `cargo publish --dry-run --workspace` verifies publication in dependency order.
 - `python3 devops/check_workspace.py --packages` enforces a 9 MB archive budget
-  (9.5 MB for the existing offline planet-map tiers), below the registry's 10 MB cap.
+  (9.5 MB for surfaces, including the existing offline planet-map tiers), below the registry's 10 MB cap.
 
 The existing Publish workflow publishes missing packages in dependency order
 and tags the release only after publication succeeds. Retry that workflow on

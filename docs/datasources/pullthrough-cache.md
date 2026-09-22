@@ -48,7 +48,7 @@ mirror miss; the client will not grant the server arbitrary upstream URLs.
 Export the same artifact descriptions used by clients:
 
 ```sh
-cargo run -p starfield-datasources --all-features --example datastore_manifest -- \
+cargo run -p starfield --features all-data --example datastore_manifest -- \
   --base path/to/ephemeris.toml --base manifests/build-inputs.toml \
   --kernel de430t.bsp --kernel de405.bsp --kernel jup365.bsp \
   --kernel moon_pa_de440_200625.bpc --hipparcos \
@@ -77,7 +77,7 @@ The Python spectral-library builder needs the CLI:
 
 ```sh
 cargo install starfield-datastore --version 0.1.1 --features cli
-python3 crates/reflectance-library/scripts/build_table.py > regenerated.csv
+python3 crates/surfaces/scripts/reflectance-library/build_table.py > regenerated.csv
 ```
 
 ## Direct network calls retained after the audit

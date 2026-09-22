@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.18.0
+
+- Consolidate 19 workspace packages into six: `starfield`, `starfield-core`,
+  `starfield-catalogs`, `starfield-jpl`, `starfield-surfaces`, and `starfield-tools`.
+- Preserve facade import paths and per-source features. Grouped libraries default
+  to no sources; Hipparcos alone does not enable Gaia/Arrow or NSA/MAST FITS code.
+- Breaking for direct implementation-crate users: replace per-source dependencies
+  and `starfield-datasources` with `starfield` and the matching source features.
+  See `docs/workspace-migration.md` for the dependency and import mapping.
+- Move shared datasource utilities to `starfield_core::data::source_utils`
+  under the existing `datastore` feature.
+- Rename the CLI package to `starfield-tools`, retaining `gaia-excerpt` and
+  `hipparcos-gaia-match` binary names.
+- Preserve embedded data byte-for-byte, offline behavior, and pull-through tests;
+  enforce a six-package workspace and isolated datasource dependency graphs.
+
 ## 0.17.1
 
 - Combine local SPK files with `SpiceKernel::open_many` or `merge`, and named

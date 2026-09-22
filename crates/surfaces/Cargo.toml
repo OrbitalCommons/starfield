@@ -1,0 +1,33 @@
+[package]
+name = "starfield-surfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Feature-selected planetary maps and reference spectra"
+readme = "README.md"
+include = ["src/**", "data/**", "tests/**", "scripts/**/*.py", "Cargo.toml", "README.md", "LICENSE"]
+
+[features]
+default = []
+all = ["planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum"]
+planet-maps = ["dep:flate2", "reflectance-library"]
+reflectance-library = []
+planet-spectra = ["dep:starfield-datastore"]
+solar-spectrum = []
+
+[dependencies]
+starfield-core.workspace = true
+flate2 = { workspace = true, optional = true }
+starfield-datastore = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "planet_spectra_spectral_features"
+path = "tests/planet-spectra/spectral_features.rs"
+required-features = ["planet-spectra"]
+
+[package.metadata.docs.rs]
+features = ["all"]

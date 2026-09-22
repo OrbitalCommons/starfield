@@ -1,0 +1,25 @@
+[package]
+name = "starfield-tools"
+version.workspace = true
+description = "Command-line tools for Starfield catalogs (excerpt + sharding)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "gaia-excerpt"
+path = "src/main.rs"
+
+[[bin]]
+name = "hipparcos-gaia-match"
+path = "src/bin/hipparcos_gaia_match.rs"
+
+[dependencies]
+starfield-catalogs = { version = "=0.18.0", path = "../catalogs", default-features = false, features = ["gaia", "all-releases", "hipparcos"] }
+starfield-core = { workspace = true }
+clap = { workspace = true }
+indicatif = { workspace = true }
+nalgebra = { workspace = true }
+flate2 = { workspace = true }
+cdshealpix = { workspace = true }
+plotters = { workspace = true }

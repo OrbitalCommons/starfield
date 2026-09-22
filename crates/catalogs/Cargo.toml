@@ -1,0 +1,137 @@
+[package]
+name = "starfield-catalogs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Feature-selected astronomical catalogs and survey clients"
+readme = "README.md"
+include = ["src/**", "data/**", "tests/**", "scripts/**/*.py", "Cargo.toml", "README.md", "LICENSE"]
+
+[features]
+default = []
+all = ["gaia", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa", "all-releases", "radial-profiles"]
+gaia = ["dep:tempfile", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:flate2", "dep:md5", "dep:regex", "dep:rand", "dep:nalgebra", "dep:arrow", "dep:cdshealpix", "dr3"]
+gaia-extended = ["gaia", "dep:serde", "dep:flate2", "dep:nalgebra"]
+bright-galaxies = ["gaia", "dep:serde"]
+hipparcos = ["dep:serde", "dep:thiserror", "dep:rand", "dep:nalgebra", "dep:flate2"]
+mast = ["gaia", "dep:serde", "dep:serde_json", "dep:reqwest", "dep:fitsio-pure", "dep:log"]
+nsa = ["starfield-core/photometry", "dep:serde", "dep:thiserror", "dep:nalgebra", "dep:fitsio-pure", "dep:reqwest"]
+dr1 = ["gaia"]
+dr2 = ["gaia"]
+dr3 = []
+all-releases = ["gaia", "dr1", "dr2", "dr3"]
+radial-profiles = ["nsa"]
+
+[dependencies]
+starfield-core.workspace = true
+arrow = { workspace = true, optional = true }
+cdshealpix = { workspace = true, optional = true }
+fitsio-pure = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+md5 = { workspace = true, optional = true }
+nalgebra = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "gaia_dr1_round_trip"
+path = "tests/gaia/dr1_round_trip.rs"
+required-features = ["gaia", "dr1"]
+
+[[test]]
+name = "gaia_dr1_supplement"
+path = "tests/gaia/dr1_supplement.rs"
+required-features = ["gaia", "dr1"]
+
+[[test]]
+name = "gaia_dr2_round_trip"
+path = "tests/gaia/dr2_round_trip.rs"
+required-features = ["gaia", "dr2"]
+
+[[test]]
+name = "gaia_dr2_supplement"
+path = "tests/gaia/dr2_supplement.rs"
+required-features = ["gaia", "dr2"]
+
+[[test]]
+name = "gaia_dr3_excerpt"
+path = "tests/gaia/dr3_excerpt.rs"
+required-features = ["gaia", "dr3"]
+
+[[test]]
+name = "gaia_dr3_excerpt_cone"
+path = "tests/gaia/dr3_excerpt_cone.rs"
+required-features = ["gaia", "dr3"]
+
+[[test]]
+name = "gaia_dr3_round_trip"
+path = "tests/gaia/dr3_round_trip.rs"
+required-features = ["gaia", "dr3"]
+
+[[test]]
+name = "gaia_dr3_supplement"
+path = "tests/gaia/dr3_supplement.rs"
+required-features = ["gaia", "dr3"]
+
+[[test]]
+name = "gaia_proper_motion"
+path = "tests/gaia/proper_motion.rs"
+required-features = ["gaia"]
+
+[[test]]
+name = "gaia_extended_galaxy"
+path = "tests/gaia-extended/galaxy.rs"
+required-features = ["gaia-extended"]
+
+[[test]]
+name = "gaia_extended_qso"
+path = "tests/gaia-extended/qso.rs"
+required-features = ["gaia-extended"]
+
+[[test]]
+name = "bright_galaxies_embedded"
+path = "tests/bright-galaxies/embedded.rs"
+required-features = ["bright-galaxies"]
+
+[[test]]
+name = "mast_network"
+path = "tests/mast/network.rs"
+required-features = ["mast"]
+
+[[test]]
+name = "mast_synthetic_json"
+path = "tests/mast/synthetic_json.rs"
+required-features = ["mast"]
+
+[[test]]
+name = "mast_wcs"
+path = "tests/mast/wcs.rs"
+required-features = ["mast"]
+
+[[test]]
+name = "nsa_extended_source"
+path = "tests/nsa/extended_source.rs"
+required-features = ["nsa"]
+
+[[test]]
+name = "nsa_part2_traits"
+path = "tests/nsa/part2_traits.rs"
+required-features = ["nsa"]
+
+[[test]]
+name = "nsa_round_trip"
+path = "tests/nsa/round_trip.rs"
+required-features = ["nsa"]
+
+[package.metadata.docs.rs]
+features = ["all"]

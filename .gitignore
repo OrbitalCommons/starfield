@@ -7,3 +7,7 @@ Cargo.lock
 /crates/core/*.bsp
 *.swp
 *.swo
+
+# Python data-generation bytecode
+__pycache__/
+*.pyc
