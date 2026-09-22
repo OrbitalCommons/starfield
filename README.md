@@ -3,7 +3,7 @@
 Starfield is a single workspace and release family. Depend on the facade:
 
 ```toml
-starfield = { version = "0.17", features = ["catalogs", "jpl"] }
+starfield = { version = "0.18", features = ["catalogs", "jpl"] }
 ```
 
 The default enables core calculations and datastore support. Optional groups
@@ -12,7 +12,12 @@ let small consumers avoid unrelated dependencies. Python reference testing is
 separate (`cargo test -p starfield-core --features python-tests`).
 
 See [the workspace migration guide](docs/workspace-migration.md) for feature
-names, compatibility changes, and the first coordinated release checklist.
+names and migration instructions.
+
+The release contains six packages: `starfield`, `starfield-core`,
+`starfield-catalogs`, `starfield-jpl`, `starfield-surfaces`, and `starfield-tools`.
+The grouped libraries have no datasource features enabled by default.
+Old per-source packages end at 0.17.1; use facade features instead.
 
 Astronomical data reduction toolkit with star catalogs, coordinate systems, and star finding algorithms inspired by Skyfield.
 
@@ -64,7 +69,10 @@ fn main() {
 
 ## Command Line Tools
 
-The package includes command-line tools for working with star catalogs:
+Install the catalog utilities with `cargo install starfield-tools`. The binary
+names remain `gaia-excerpt` and `hipparcos-gaia-match`.
+
+Examples for working with star catalogs:
 
 ```bash
 # Basic catalog statistics

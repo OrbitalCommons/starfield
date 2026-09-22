@@ -282,7 +282,7 @@ network fails loudly.
 
 ## 8. Migration
 
-`starfield-datasource-utils` keeps `download_to_file`, `cache_dir`,
+`starfield_core::data::source_utils` keeps `download_to_file`, `cache_dir`,
 `ensure_cache_subdir` and `file_exists_and_not_empty` as thin shims delegating
 to the datastore, so none of the nine existing call sites churn. New code uses
 the datastore API directly, and the shims are removed when the last caller is

@@ -21,22 +21,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: python3 devops/check_workspace.py
+      - run: python3 devops/check_features.py
       - run: python3 -m unittest discover -s devops -p test_publish_workspace.py
       - run: cargo clippy --workspace --features starfield/all-data -- -D warnings
       - run: cargo test --workspace --features starfield/all-data
       - run: cargo clippy -p starfield-core -p starfield --no-default-features -- -D warnings
       - run: cargo test -p starfield-core -p starfield --no-default-features
       - name: Datasource integration tests
-        run: cargo test -p starfield-datasources --all-features
+        run: cargo test -p starfield --features all-data --test pullthrough
       - name: Check data generation scripts
-        run: python3 -m py_compile crates/reflectance-library/scripts/build_table.py crates/solar-spectrum/scripts/build_table.py
+        run: python3 -m py_compile crates/surfaces/scripts/reflectance-library/build_table.py crates/surfaces/scripts/solar-spectrum/build_table.py
 
   facade:
     name: Facade feature isolation
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["", "hipparcos", "catalogs", "jpl", "surfaces"]
+        features: ["", "gaia", "gaia-all", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa", "radial-profiles", "horizons", "sbdb", "mpc", "rubin", "planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum", "catalogs", "jpl", "surfaces"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

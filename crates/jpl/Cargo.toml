@@ -1,0 +1,43 @@
+[package]
+name = "starfield-jpl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Feature-selected Solar System data clients"
+readme = "README.md"
+include = ["src/**", "data/**", "tests/**", "scripts/**/*.py", "Cargo.toml", "README.md", "LICENSE"]
+
+[features]
+default = []
+all = ["horizons", "sbdb", "mpc", "rubin"]
+horizons = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:base64"]
+sbdb = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror"]
+mpc = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log", "dep:nalgebra"]
+rubin = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log"]
+
+[dependencies]
+starfield-core.workspace = true
+base64 = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+nalgebra = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "horizons_disk_orientation"
+path = "tests/horizons/disk_orientation.rs"
+required-features = ["horizons"]
+
+[[test]]
+name = "rubin_url_verification"
+path = "tests/rubin/url_verification.rs"
+required-features = ["rubin"]
+
+[package.metadata.docs.rs]
+features = ["all"]

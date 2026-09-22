@@ -96,7 +96,7 @@ Pipeline (identical for every release, parameterized by the [`GaiaRelease`] trai
 
 1. **Index discovery**: Fetches the HTML directory listing at the release's base URL and extracts filenames via a per-release regex.
 
-2. **Download with caching**: Each gzipped CSV file is downloaded to `~/.cache/starfield/gaia/{dr1,dr2,dr3}/`. `starfield-datasource-utils` writes to `.tmp` first and renames atomically.
+2. **Download with caching**: Each gzipped CSV file is downloaded to `~/.cache/starfield/gaia/{dr1,dr2,dr3}/`. `starfield_core::data::source_utils` writes to `.tmp` first and renames atomically.
 
 3. **MD5 verification**: The release's checksum file (`MD5SUM.txt` for DR1/DR2, `_MD5SUM.txt` for DR3) is downloaded once and consulted for every file.
 

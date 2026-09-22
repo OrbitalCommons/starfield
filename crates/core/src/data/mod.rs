@@ -22,3 +22,7 @@ pub use gaia_downloader::{
     download_gaia_catalog, download_gaia_file, ensure_gaia_cache_dir, get_gaia_cache_dir,
     list_cached_gaia_files,
 };
+
+/// Shared HTTP, artifact, cache, and sampled-curve helpers for data sources.
+#[cfg(feature = "datastore")]
+pub mod source_utils;

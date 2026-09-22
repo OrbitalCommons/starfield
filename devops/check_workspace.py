@@ -17,6 +17,10 @@ def main():
     packages = {p["name"]: p for p in metadata["packages"] if p["id"] in members}
     version = packages["starfield"]["version"]
     errors = []
+    expected_packages = {"starfield", "starfield-core", "starfield-catalogs",
+                         "starfield-jpl", "starfield-surfaces", "starfield-tools"}
+    if set(packages) != expected_packages:
+        errors.append(f"expected six grouped packages, found {sorted(packages)}")
     kernels = subprocess.check_output(["git", "ls-files", "*.bsp"], text=True).splitlines()
     if kernels != ["test_data/de421.bsp"]:
         errors.append(f"only test_data/de421.bsp may be checked in; found {kernels}")
@@ -40,7 +44,7 @@ def main():
             if not archive.is_file():
                 archive = package_dir / "tmp-crate" / filename
             # Preserve existing offline map tiers while leaving registry headroom.
-            budget = 9_500_000 if name == "starfield-planet-maps" else 9_000_000
+            budget = 9_500_000 if name == "starfield-surfaces" else 9_000_000
             if not archive.is_file():
                 errors.append(f"missing archive: {archive}")
             else:
