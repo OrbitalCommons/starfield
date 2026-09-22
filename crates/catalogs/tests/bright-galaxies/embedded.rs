@@ -111,6 +111,80 @@ fn cone_filter_returns_only_inside_galaxies() {
 }
 
 #[test]
+fn extended_cone_returns_giants_clipped_by_an_off_centre_cone() {
+    // M31 sits at (10.685°, 41.269°) with θ_eff = 720″ (12′) and
+    // n = 2.5; its truncation radius at sb_fraction = 1e-3 is ≈ 1.9°
+    // along the major axis. Place a tiny cone 1° away from the M31
+    // centre — well outside the centre but comfortably inside the
+    // truncated envelope. The plain `in_cone` returns nothing,
+    // `in_cone_extended` should return M31.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let m31 = cat.get("M31").expect("M31 in supplement");
+    let off_centre = Cone::from_degrees(
+        m31.ra_deg + 1.0 / m31.dec_deg.to_radians().cos(),
+        m31.dec_deg,
+        0.05,
+    );
+
+    let plain = cat.in_cone(&off_centre);
+    let plain_names: std::collections::HashSet<&str> =
+        plain.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        !plain_names.contains("M31"),
+        "plain in_cone should miss the off-centre M31 cone"
+    );
+
+    let extended = cat.in_cone_extended(&off_centre, 1e-3);
+    let extended_names: std::collections::HashSet<&str> =
+        extended.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        extended_names.contains("M31"),
+        "in_cone_extended should catch M31 via its outer envelope; got {:?}",
+        extended_names
+    );
+}
+
+#[test]
+fn extended_cone_rejects_galaxies_far_outside_extent() {
+    // A 0.05° cone 30° away from M31 should miss it even with the
+    // most generous `sb_fraction` — M31's truncation radius doesn't
+    // span 30°.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let m31 = cat.get("M31").expect("M31 in supplement");
+    let far = Cone::from_degrees(m31.ra_deg, m31.dec_deg + 30.0, 0.05);
+    let extended = cat.in_cone_extended(&far, 1e-6);
+    let names: std::collections::HashSet<&str> = extended.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        !names.contains("M31"),
+        "M31 must not match a cone 30° away even at sb_fraction = 1e-6"
+    );
+}
+
+#[test]
+fn extended_cone_smaller_fraction_returns_at_least_as_many() {
+    // Tighter truncation (smaller fraction) means a bigger envelope, so
+    // the returned set must be a superset of the looser-fraction set.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let cone = Cone::from_degrees(187.7, 12.4, 3.0);
+    let loose: std::collections::HashSet<&str> = cat
+        .in_cone_extended(&cone, 1e-2)
+        .iter()
+        .map(|g| g.name.as_str())
+        .collect();
+    let tight: std::collections::HashSet<&str> = cat
+        .in_cone_extended(&cone, 1e-6)
+        .iter()
+        .map(|g| g.name.as_str())
+        .collect();
+    assert!(
+        loose.is_subset(&tight),
+        "loose set ({} entries) should be a subset of tight set ({} entries)",
+        loose.len(),
+        tight.len()
+    );
+}
+
+#[test]
 fn from_csv_file_round_trips() {
     let cat = BrightGalaxyCatalog::load_embedded().unwrap();
     // Write a custom file with one entry then re-parse.
