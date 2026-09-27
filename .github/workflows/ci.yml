@@ -14,7 +14,7 @@ jobs:
     name: Workspace tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -39,7 +39,7 @@ jobs:
       matrix:
         features: ["", "gaia", "gaia-all", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa", "radial-profiles", "horizons", "sbdb", "mpc", "rubin", "planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum", "catalogs", "jpl", "surfaces"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p starfield --no-default-features --features "${{ matrix.features }}"
@@ -49,7 +49,7 @@ jobs:
     name: Python comparison tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
