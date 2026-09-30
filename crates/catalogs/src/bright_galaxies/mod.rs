@@ -237,6 +237,11 @@ impl BrightGalaxyCatalog {
     /// great-circle distance from `cone`'s centre to the galaxy's
     /// centre is at most `cone.radius + galaxy_truncation_radius`.
     ///
+    /// The truncation radius is measured along the major axis, so the
+    /// test treats each envelope as a circle of that radius: it never
+    /// misses an overlapping galaxy, but may return an elongated one
+    /// whose minor-axis side only approaches the cone.
+    ///
     /// `sb_fraction` controls the truncation: `1e-3` is a coverage
     /// default that matches the asinh-stretch visibility floor of
     /// typical previews; `1e-4` matches the deeper truncation budget a
