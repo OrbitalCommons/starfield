@@ -77,6 +77,31 @@ impl Dr2Catalog {
         }
         Ok(added)
     }
+
+    /// Like [`Self::augment_missing`], but inserts only supplement rows whose
+    /// position lies inside `cone`. Returns the number of entries added.
+    ///
+    /// Pair this with [`GaiaCatalog::materialize_cone`] (or
+    /// [`Self::from_excerpt_dir_for_cone`]) so the augmented catalog covers
+    /// the same patch of sky as the Gaia rows: the unrestricted
+    /// [`Self::augment_missing`] inserts the supplement for the whole sky.
+    ///
+    /// Membership uses [`Cone::contains_radec_deg`] on the supplement
+    /// position, which is already propagated to the DR2 reference epoch
+    /// (J2015.5).
+    pub fn augment_missing_in_cone(&mut self, cone: Cone, mag_limit: f64) -> Result<usize> {
+        let rows = crate::gaia::dr2::supplement::parse_embedded_supplement()?;
+        let mut added = 0;
+        for row in &rows {
+            if row.fitted_g_mag > mag_limit || !cone.contains_radec_deg(row.ra, row.dec) {
+                continue;
+            }
+            self.0
+                .insert(crate::gaia::dr2::supplement::supplement_row_to_entry(row));
+            added += 1;
+        }
+        Ok(added)
+    }
 }
 
 impl Default for Dr2Catalog {
