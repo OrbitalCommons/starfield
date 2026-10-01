@@ -2,7 +2,9 @@
 //!
 //! Provides access to MPC bulk data files and the web service API.
 
-use std::io::Read;
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use starfield_core::data::source_utils::{build_http_client, check_response_status};
@@ -16,6 +18,9 @@ const MPC_DATA_URL: &str = "https://www.minorplanetcenter.net/iau";
 
 /// Minimum delay between HTTP requests (2 seconds)
 const RATE_LIMIT_MS: u64 = 2000;
+
+/// Whole-transfer deadline for the full MPCORB.DAT download (~300 MB).
+const MPCORB_DOWNLOAD_TIMEOUT_S: u64 = 1800;
 
 /// Client for accessing Minor Planet Center data
 pub struct MpcClient {
@@ -108,6 +113,49 @@ impl MpcClient {
         let bytes = self.fetch_bytes(&url)?;
         let text = String::from_utf8_lossy(&bytes);
         parse_mpcorb(&text)
+    }
+
+    /// Stream the full MPCORB.DAT catalog to `path` without holding it in memory.
+    ///
+    /// The file is written to `<path>.part` and renamed into place once the
+    /// transfer completes, so an interrupted download never leaves a truncated
+    /// catalog at `path`. Parent directories are created as needed. Load the
+    /// result with [`MpcorbCatalog::from_file`](crate::mpc::MpcorbCatalog::from_file).
+    ///
+    /// Source: <https://minorplanetcenter.net/iau/MPCORB/MPCORB.DAT>
+    pub fn download_mpcorb_to(&mut self, path: &Path) -> Result<()> {
+        let url = format!("{}/MPCORB/MPCORB.DAT", MPC_DATA_URL);
+        self.rate_limit();
+        log::info!("Downloading {} to {}", url, path.display());
+
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let mut response = check_response_status(
+            self.client
+                .get(&url)
+                .timeout(Duration::from_secs(MPCORB_DOWNLOAD_TIMEOUT_S))
+                .send()
+                .map_err(|e| {
+                    StarfieldError::DataError(format!("MPC request failed for {}: {}", url, e))
+                })?,
+            &url,
+        )?;
+
+        let mut partial = path.as_os_str().to_owned();
+        partial.push(".part");
+        let partial = Path::new(&partial);
+        let mut file = File::create(partial)?;
+        if let Err(e) = io::copy(&mut response, &mut file) {
+            let _ = fs::remove_file(partial);
+            return Err(StarfieldError::DataError(format!(
+                "Failed to download {}: {}",
+                url, e
+            )));
+        }
+        file.sync_all()?;
+        fs::rename(partial, path)?;
+        Ok(())
     }
 
     /// Fetch a subset of MPCORB focusing on distant objects (TNOs, Centaurs).

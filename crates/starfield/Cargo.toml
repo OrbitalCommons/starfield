@@ -33,6 +33,7 @@ bright-galaxies = ["dep:starfield-catalogs", "starfield-catalogs/bright-galaxies
 hipparcos = ["dep:starfield-catalogs", "starfield-catalogs/hipparcos"]
 mast = ["dep:starfield-catalogs", "starfield-catalogs/mast"]
 mpc = ["dep:starfield-jpl", "starfield-jpl/mpc"]
+mpc-parallel = ["mpc", "starfield-jpl/parallel"]
 nsa = ["dep:starfield-catalogs", "starfield-catalogs/nsa", "photometry"]
 planet-spectra = ["dep:starfield-surfaces", "starfield-surfaces/planet-spectra"]
 planet-maps = ["dep:starfield-surfaces", "starfield-surfaces/planet-maps"]

@@ -3,7 +3,8 @@
 //! Provides access to the MPC's astronomical data products:
 //!
 //! - **MPCORB catalog** — orbital elements for all numbered and unnumbered
-//!   minor planets (asteroids, TNOs, comets)
+//!   minor planets (asteroids, TNOs, comets), loaded and screened for
+//!   propagatable orbits by [`MpcorbCatalog`]
 //! - **Observatory codes** — geographic positions of all registered observatories
 //! - **Observation records** — 80-column astrometric observation format parser
 //!
@@ -20,12 +21,14 @@
 //! println!("Loaded {} observatories", observatories.len());
 //! ```
 
+pub mod catalog;
 pub mod client;
 pub mod ephemeris;
 pub mod mpcorb;
 pub mod observation;
 pub mod observatory;
 
+pub use catalog::{MinorPlanet, MpcorbCatalog, MPCORB_URL};
 pub use client::MpcClient;
 pub use ephemeris::hg_apparent_magnitude;
 pub use mpcorb::{parse_mpcorb, parse_mpcorb_line, unpack_epoch, MpcOrbRecord};

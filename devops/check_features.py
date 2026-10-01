@@ -6,7 +6,7 @@ import subprocess
 
 GROUPS = {
     "catalogs": {"gaia", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa"},
-    "jpl": {"horizons", "sbdb", "mpc", "rubin"},
+    "jpl": {"horizons", "sbdb", "mpc", "mpc-parallel", "rubin"},
     "surfaces": {"planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum"},
 }
 

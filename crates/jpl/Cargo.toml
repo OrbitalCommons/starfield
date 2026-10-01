@@ -14,6 +14,7 @@ all = ["horizons", "sbdb", "mpc", "rubin"]
 horizons = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:base64"]
 sbdb = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror"]
 mpc = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log", "dep:nalgebra"]
+parallel = ["mpc", "dep:rayon"]
 rubin = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log"]
 
 [dependencies]
@@ -21,12 +22,14 @@ starfield-core.workspace = true
 base64 = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 nalgebra = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
+approx = "0.5"
 tempfile.workspace = true
 
 [[test]]
