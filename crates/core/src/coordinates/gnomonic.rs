@@ -252,8 +252,14 @@ mod tests {
     fn test_hemisphere_behind_plane_is_rejected() {
         let proj = GnomonicProjection::new(Equatorial::from_degrees(0.0, 0.0));
         assert!(proj.project(&Equatorial::new(PI, 0.0)).is_none());
-        assert!(proj.project(&Equatorial::new(FRAC_PI_2, 0.0)).is_none());
-        assert!(proj.project(&Equatorial::new(0.0, -FRAC_PI_2)).is_none());
+        assert!(proj
+            .project(&Equatorial::new(FRAC_PI_2 + 1e-9, 0.0))
+            .is_none());
+        assert!(proj
+            .project(&Equatorial::new(0.0, -FRAC_PI_2 - 1e-9))
+            .is_none());
+        assert!(proj.project_vector(&Vector3::new(0.0, 1.0, 0.0)).is_none());
+        assert!(proj.project_vector(&Vector3::new(0.0, 0.0, -1.0)).is_none());
         assert!(proj.project(&Equatorial::new(1.5, 0.0)).is_some());
     }
 
