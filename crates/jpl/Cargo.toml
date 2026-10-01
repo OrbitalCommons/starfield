@@ -13,7 +13,7 @@ default = []
 all = ["horizons", "sbdb", "mpc", "rubin"]
 horizons = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:base64"]
 sbdb = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror"]
-mpc = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log", "dep:nalgebra"]
+mpc = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log", "dep:nalgebra", "dep:starfield-datastore"]
 parallel = ["mpc", "dep:rayon"]
 rubin = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:thiserror", "dep:log"]
 
@@ -24,6 +24,7 @@ log = { workspace = true, optional = true }
 nalgebra = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+starfield-datastore = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }

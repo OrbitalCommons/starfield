@@ -28,7 +28,7 @@ pub mod mpcorb;
 pub mod observation;
 pub mod observatory;
 
-pub use catalog::{MinorPlanet, MpcorbCatalog, MPCORB_URL};
+pub use catalog::{mpcorb_artifact, MinorPlanet, MpcorbCatalog, MPCORB_ARTIFACT_KEY, MPCORB_URL};
 pub use client::MpcClient;
 pub use ephemeris::hg_apparent_magnitude;
 pub use mpcorb::{parse_mpcorb, parse_mpcorb_line, unpack_epoch, MpcOrbRecord};

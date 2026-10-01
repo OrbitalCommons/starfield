@@ -12,6 +12,37 @@
 //! `parallel` feature the rows are parsed and converted on the rayon thread
 //! pool; without it, sequentially.
 //!
+//! # Where the file comes from
+//!
+//! [`MpcorbCatalog::load_default`] resolves the catalog through
+//! `starfield-datastore` under the key [`MPCORB_ARTIFACT_KEY`], so it follows
+//! the same `local cache -> STARFIELD_MIRROR -> upstream` order, offline
+//! switch (`STARFIELD_OFFLINE`) and upstream opt-in
+//! (`STARFIELD_ALLOW_UPSTREAM=1`) as every other starfield data file, and
+//! concurrent loaders share one locked, atomically published copy. A file
+//! already at [`legacy_cache_path`](MpcorbCatalog::legacy_cache_path) is
+//! validated and adopted on first use.
+//!
+//! The MPC regenerates MPCORB.DAT daily, but the datastore treats the cached
+//! copy as an immutable snapshot: it is used until it is replaced explicitly.
+//! To take a newer snapshot, remove the key and resolve again, or import a
+//! file you fetched yourself:
+//!
+//! ```no_run
+//! use starfield_datastore::Datastore;
+//! use starfield_jpl::mpc::catalog::mpcorb_artifact;
+//!
+//! let store = Datastore::from_env().unwrap();
+//! let artifact = mpcorb_artifact().unwrap();
+//! store.remove(&artifact.key).unwrap();
+//! // ...then `MpcorbCatalog::load_default()`, or
+//! // `store.import(&artifact, path)` with a locally fetched file.
+//! ```
+//!
+//! A mirror fill needs the server's manifest to carry the same key; a
+//! mirror that does not know `mpc/MPCORB/MPCORB.DAT` answers 404 and
+//! resolution falls through to upstream (if allowed).
+//!
 //! ```no_run
 //! use starfield_jpl::mpc::MpcorbCatalog;
 //!
@@ -21,20 +52,64 @@
 //! ```
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use starfield_core::data::source_utils::{cache_dir, file_exists_and_not_empty};
+use starfield_core::data::source_utils::{cache_dir, datastore_error, resolve_artifact};
 use starfield_core::keplerlib::KeplerOrbit;
 use starfield_core::positions::Position;
 use starfield_core::time::{Time, Timescale};
 use starfield_core::{Result, StarfieldError};
 
-use crate::mpc::client::MpcClient;
+use starfield_datastore::{Artifact, ArtifactKey, ContentCheck, Datastore, Provenance, Source};
+
 use crate::mpc::mpcorb::{parse_mpcorb_line, MpcOrbRecord};
 
 /// Where the MPC publishes the full MPCORB catalog.
 pub const MPCORB_URL: &str = "https://minorplanetcenter.net/iau/MPCORB/MPCORB.DAT";
+
+/// Datastore key of the cached MPCORB snapshot. A mirror server must list
+/// this key in its manifest to serve it.
+pub const MPCORB_ARTIFACT_KEY: &str = "mpc/MPCORB/MPCORB.DAT";
+
+/// The datastore artifact for MPCORB.DAT.
+///
+/// Its content check rejects HTML and short bodies, then requires at least
+/// one row that parses as an MPCORB record anywhere in the file, so a header
+/// longer than the datastore's prefix window does not matter. The check runs
+/// on the complete staged file before it is published to the cache.
+pub fn mpcorb_artifact() -> Result<Artifact> {
+    let key = ArtifactKey::new(MPCORB_ARTIFACT_KEY).map_err(datastore_error)?;
+    Ok(Artifact::new(key, vec![Source::new(MPCORB_URL)])
+        .with_check(ContentCheck::All(vec![
+            ContentCheck::NotHtml,
+            ContentCheck::MinBytes(MPCORB_MIN_BYTES),
+            ContentCheck::custom(Arc::new(|bytes: &[u8]| {
+                if contains_mpcorb_row(bytes) {
+                    Ok(())
+                } else {
+                    Err("no parseable MPCORB row".to_string())
+                }
+            })),
+        ]))
+        .with_provenance(Provenance {
+            description: "MPCORB.DAT orbital elements of the minor planets".into(),
+            license: "Minor Planet Center; see https://minorplanetcenter.net/iau/MPCORB.html"
+                .into(),
+            citation: None,
+        }))
+}
+
+/// Shortest body accepted as MPCORB: one 160-byte record plus a newline.
+const MPCORB_MIN_BYTES: u64 = 161;
+
+fn contains_mpcorb_row(bytes: &[u8]) -> bool {
+    bytes
+        .split(|&b| b == b'\n')
+        .filter_map(|line| std::str::from_utf8(line).ok())
+        .any(|line| parse_mpcorb_line(line.trim_end_matches('\r')).is_some())
+}
 
 /// One MPCORB row with an orbit known to propagate.
 #[derive(Debug, Clone)]
@@ -128,22 +203,26 @@ pub struct MpcorbCatalog {
 }
 
 impl MpcorbCatalog {
-    /// `~/.cache/starfield/mpcorb/MPCORB.DAT`.
-    pub fn default_path() -> PathBuf {
+    /// `~/.cache/starfield/mpcorb/MPCORB.DAT`, the flat-file location some
+    /// consumers populated before the datastore. [`load_default`](Self::load_default)
+    /// validates and adopts a file found here.
+    pub fn legacy_cache_path() -> PathBuf {
         cache_dir().join("mpcorb").join("MPCORB.DAT")
     }
 
-    /// Load the cached catalog at [`default_path`](Self::default_path),
-    /// downloading it from the MPC first when the cache is empty.
-    ///
-    /// The MPC regenerates the file daily; the cached copy is used as-is
-    /// until it is deleted or replaced with
-    /// [`MpcClient::download_mpcorb_to`].
+    /// Resolve MPCORB.DAT through the environment-configured datastore,
+    /// adopting a valid file at [`legacy_cache_path`](Self::legacy_cache_path),
+    /// and load it. See the [module documentation](self) for the offline,
+    /// mirror and refresh policy.
     pub fn load_default() -> Result<Self> {
-        let path = Self::default_path();
-        if !file_exists_and_not_empty(&path) {
-            MpcClient::new()?.download_mpcorb_to(&path)?;
-        }
+        let path = resolve_artifact(&mpcorb_artifact()?, Some(&Self::legacy_cache_path()))?;
+        Self::from_file(&path)
+    }
+
+    /// Resolve MPCORB.DAT through a caller-configured datastore and load it.
+    /// Never consults the legacy cache path.
+    pub fn load_from_store(store: &Datastore) -> Result<Self> {
+        let path = store.get(&mpcorb_artifact()?).map_err(datastore_error)?;
         Self::from_file(&path)
     }
 
@@ -187,7 +266,7 @@ impl MpcorbCatalog {
     }
 
     /// A catalog from records already in hand, such as the output of
-    /// [`MpcClient::fetch_mpcorb`] or a hand-picked set.
+    /// [`MpcClient::fetch_mpcorb`](crate::mpc::MpcClient::fetch_mpcorb) or a hand-picked set.
     pub fn from_records(records: Vec<MpcOrbRecord>) -> Self {
         let ts = Timescale::default();
         let parsed = records
@@ -372,13 +451,109 @@ mod tests {
     }
 
     #[test]
-    fn default_path_is_under_the_starfield_cache() {
-        let path = MpcorbCatalog::default_path();
+    fn legacy_cache_path_is_under_the_starfield_cache() {
+        let path = MpcorbCatalog::legacy_cache_path();
         assert!(path.starts_with(cache_dir()));
         assert!(path.ends_with("mpcorb/MPCORB.DAT"));
     }
 
-    /// Downloads the full catalog (~300 MB) from the MPC.
+    fn offline_store(root: &Path) -> Datastore {
+        Datastore::builder()
+            .cache_root(root.to_path_buf())
+            .without_mirror()
+            .offline(true)
+            .progress(false)
+            .build()
+            .unwrap()
+    }
+
+    fn write_mpcorb(dir: &Path, header_bytes: usize) -> PathBuf {
+        let path = dir.join("MPCORB.DAT");
+        let header = "MINOR PLANET CENTER ORBIT DATABASE (MPCORB)\n".repeat(header_bytes / 44 + 1);
+        std::fs::write(&path, format!("{header}{CERES}\n{VESTA}\n")).unwrap();
+        path
+    }
+
+    #[test]
+    fn content_check_finds_a_row_after_a_long_header() {
+        let check = mpcorb_artifact().unwrap().check;
+        let dir = tempfile::tempdir().unwrap();
+        // Well past the datastore's 8 KiB prefix window.
+        let path = write_mpcorb(dir.path(), 64 * 1024);
+        assert!(check.check_file(&path).is_ok());
+    }
+
+    #[test]
+    fn content_check_rejects_html_and_header_only_files() {
+        let check = mpcorb_artifact().unwrap().check;
+        let html = format!("<!DOCTYPE html><html>{}</html>", " ".repeat(400));
+        assert!(check.check(html.as_bytes()).is_err());
+        let header_only = format!(
+            "{}\n{}\n",
+            "MPCORB header ".repeat(40),
+            unbound().replace('.', "x")
+        );
+        assert!(check.check(header_only.as_bytes()).is_err());
+        assert!(check.check(format!("{CERES}\n").as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn offline_store_without_the_snapshot_fails_without_network() {
+        let root = tempfile::tempdir().unwrap();
+        let store = offline_store(root.path());
+        assert!(MpcorbCatalog::load_from_store(&store).is_err());
+    }
+
+    #[test]
+    fn offline_store_loads_an_imported_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let store = offline_store(root.path());
+        let file = write_mpcorb(src.path(), 0);
+        store.import(&mpcorb_artifact().unwrap(), &file).unwrap();
+        let catalog = MpcorbCatalog::load_from_store(&store).unwrap();
+        assert_eq!(catalog.len(), 2);
+        assert!(catalog.find("Ceres").is_some());
+    }
+
+    #[test]
+    fn offline_store_refuses_to_import_an_invalid_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let store = offline_store(root.path());
+        let bad = src.path().join("MPCORB.DAT");
+        std::fs::write(&bad, "not an orbit file\n".repeat(20)).unwrap();
+        assert!(store.import(&mpcorb_artifact().unwrap(), &bad).is_err());
+        assert!(!store.contains(&mpcorb_artifact().unwrap().key));
+    }
+
+    #[test]
+    fn concurrent_legacy_adoption_publishes_one_valid_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let legacy = write_mpcorb(src.path(), 0);
+        let artifact = mpcorb_artifact().unwrap();
+        let paths: Vec<PathBuf> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    let (root, legacy, artifact) = (root.path(), &legacy, &artifact);
+                    scope.spawn(move || {
+                        let store = offline_store(root);
+                        starfield_core::data::source_utils::adopt_legacy(&store, artifact, legacy)
+                            .unwrap();
+                        store.get(artifact).unwrap()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert!(paths.windows(2).all(|w| w[0] == w[1]));
+        let catalog = MpcorbCatalog::from_file(&paths[0]).unwrap();
+        assert_eq!(catalog.len(), 2);
+    }
+
+    /// Resolves the full catalog (~300 MB) through the environment's
+    /// datastore; needs a warm cache, a mirror, or `STARFIELD_ALLOW_UPSTREAM=1`.
     #[test]
     #[ignore]
     fn live_full_catalog_loads() {
