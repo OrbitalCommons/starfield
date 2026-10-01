@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use starfield_catalogs::bright_galaxies::BrightGalaxyCatalog;
+use starfield_catalogs::bright_galaxies::{BrightGalaxy, BrightGalaxyCatalog};
 use starfield_catalogs::gaia::Cone;
 
 #[test]
@@ -108,6 +108,157 @@ fn cone_filter_returns_only_inside_galaxies() {
     // And things far away should NOT be in there.
     assert!(!names.contains("M31"));
     assert!(!names.contains("LMC"));
+}
+
+#[test]
+fn extended_cone_returns_giants_clipped_by_an_off_centre_cone() {
+    // M31 sits at (10.685°, 41.269°) with θ_eff = 720″ (12′) and
+    // n = 2.5; its truncation radius at sb_fraction = 1e-3 is ≈ 1.9°
+    // along the major axis. Place a tiny cone 1° away from the M31
+    // centre — well outside the centre but comfortably inside the
+    // truncated envelope. The plain `in_cone` returns nothing,
+    // `in_cone_extended` should return M31.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let m31 = cat.get("M31").expect("M31 in supplement");
+    let off_centre = Cone::from_degrees(
+        m31.ra_deg + 1.0 / m31.dec_deg.to_radians().cos(),
+        m31.dec_deg,
+        0.05,
+    );
+
+    let plain = cat.in_cone(&off_centre);
+    let plain_names: std::collections::HashSet<&str> =
+        plain.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        !plain_names.contains("M31"),
+        "plain in_cone should miss the off-centre M31 cone"
+    );
+
+    let extended = cat.in_cone_extended(&off_centre, 1e-3);
+    let extended_names: std::collections::HashSet<&str> =
+        extended.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        extended_names.contains("M31"),
+        "in_cone_extended should catch M31 via its outer envelope; got {:?}",
+        extended_names
+    );
+}
+
+#[test]
+fn extended_cone_rejects_galaxies_far_outside_extent() {
+    // A 0.05° cone 30° away from M31 should miss it even with the
+    // most generous `sb_fraction` — M31's truncation radius doesn't
+    // span 30°.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let m31 = cat.get("M31").expect("M31 in supplement");
+    let far = Cone::from_degrees(m31.ra_deg, m31.dec_deg + 30.0, 0.05);
+    let extended = cat.in_cone_extended(&far, 1e-6);
+    let names: std::collections::HashSet<&str> = extended.iter().map(|g| g.name.as_str()).collect();
+    assert!(
+        !names.contains("M31"),
+        "M31 must not match a cone 30° away even at sb_fraction = 1e-6"
+    );
+}
+
+#[test]
+fn extended_cone_smaller_fraction_returns_at_least_as_many() {
+    // Tighter truncation (smaller fraction) means a bigger envelope, so
+    // the returned set must be a superset of the looser-fraction set.
+    let cat = BrightGalaxyCatalog::load_embedded().unwrap();
+    let cone = Cone::from_degrees(187.7, 12.4, 3.0);
+    let loose: std::collections::HashSet<&str> = cat
+        .in_cone_extended(&cone, 1e-2)
+        .iter()
+        .map(|g| g.name.as_str())
+        .collect();
+    let tight: std::collections::HashSet<&str> = cat
+        .in_cone_extended(&cone, 1e-6)
+        .iter()
+        .map(|g| g.name.as_str())
+        .collect();
+    assert!(
+        loose.is_subset(&tight),
+        "loose set ({} entries) should be a subset of tight set ({} entries)",
+        loose.len(),
+        tight.len()
+    );
+}
+
+/// One synthetic galaxy at `(ra, dec) = (100°, 0°)` with a 600″
+/// effective radius and the given Sérsic index.
+fn single_galaxy_catalog(n: f32) -> BrightGalaxyCatalog {
+    let mut cat = BrightGalaxyCatalog::new();
+    cat.insert(BrightGalaxy {
+        name: "SYNTH".to_string(),
+        ra_deg: 100.0,
+        dec_deg: 0.0,
+        morph_type: "E0".to_string(),
+        mag_v: 8.0,
+        radius_sersic_arcsec: 600.0,
+        n_sersic: n,
+        ellipticity_sersic: 0.0,
+        pa_sersic_deg: 0.0,
+        notes: String::new(),
+    });
+    cat
+}
+
+fn matches(cat: &BrightGalaxyCatalog, cone: &Cone, sb_fraction: f64) -> bool {
+    cat.in_cone_extended(cone, sb_fraction)
+        .iter()
+        .any(|g| g.name == "SYNTH")
+}
+
+#[test]
+fn extended_cone_fraction_above_central_brightness_is_centre_only_for_even_n() {
+    // exp(b_2) ≈ 39 and exp(b_4) ≈ 2140, so sb_fraction = 1e12 lies
+    // above the central brightness of both profiles and has no
+    // isophote. Raising the negative inverse base to an even power
+    // would give a spurious multi-degree extent; the query must instead
+    // fall back to the centre-only test.
+    for n in [2.0_f32, 4.0] {
+        let cat = single_galaxy_catalog(n);
+        let on_centre = Cone::from_degrees(100.0, 0.0, 0.01);
+        let one_deg_off = Cone::from_degrees(101.0, 0.0, 0.01);
+
+        assert!(
+            matches(&cat, &one_deg_off, 1e-3),
+            "n = {n}: the 1e-3 envelope should reach a cone 1° off-centre"
+        );
+        assert!(
+            matches(&cat, &on_centre, 1e12),
+            "n = {n}: a cone on the centre must still match"
+        );
+        assert!(
+            !matches(&cat, &one_deg_off, 1e12),
+            "n = {n}: a fraction above central brightness must not add extent"
+        );
+    }
+}
+
+#[test]
+fn extended_cone_zero_fraction_matches_everywhere() {
+    // sb_fraction = 0 is an untruncated profile with infinite extent.
+    let cat = single_galaxy_catalog(2.0);
+    let antipode = Cone::from_degrees(280.0, 0.0, 0.01);
+    assert!(matches(&cat, &antipode, 0.0));
+}
+
+#[test]
+fn extended_cone_negative_or_nan_fraction_is_centre_only() {
+    let cat = single_galaxy_catalog(4.0);
+    let on_centre = Cone::from_degrees(100.0, 0.0, 0.01);
+    let one_deg_off = Cone::from_degrees(101.0, 0.0, 0.01);
+    for frac in [-1.0, -1e-3, f64::NAN] {
+        assert!(
+            matches(&cat, &on_centre, frac),
+            "sb_fraction = {frac}: a cone on the centre must still match"
+        );
+        assert!(
+            !matches(&cat, &one_deg_off, frac),
+            "sb_fraction = {frac}: an invalid fraction must not add extent"
+        );
+    }
 }
 
 #[test]
