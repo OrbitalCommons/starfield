@@ -63,7 +63,10 @@ pub struct Equatorial {
 
 impl Equatorial {
     pub fn new(ra: f64, dec: f64) -> Self {
-        let normalized_ra = ra.rem_euclid(2.0 * std::f64::consts::PI);
+        let tau = 2.0 * std::f64::consts::PI;
+        // `rem_euclid` rounds a tiny negative angle up to exactly tau.
+        let wrapped = ra.rem_euclid(tau);
+        let normalized_ra = if wrapped >= tau { 0.0 } else { wrapped };
         Equatorial {
             ra: normalized_ra,
             dec,
@@ -310,6 +313,18 @@ mod tests {
         let json = serde_json::to_string(&pm).unwrap();
         let back: ProperMotion = serde_json::from_str(&json).unwrap();
         assert_eq!(pm, back);
+    }
+
+    #[test]
+    fn test_equatorial_ra_stays_below_full_turn() {
+        for ra in [-1e-17, -f64::MIN_POSITIVE, -0.0, 2.0 * std::f64::consts::PI] {
+            let eq = Equatorial::new(ra, 0.0);
+            assert!(
+                (0.0..2.0 * std::f64::consts::PI).contains(&eq.ra),
+                "ra {ra:e} normalised to {}",
+                eq.ra
+            );
+        }
     }
 
     #[test]
