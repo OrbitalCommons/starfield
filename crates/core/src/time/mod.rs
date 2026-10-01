@@ -12,9 +12,12 @@ use nalgebra::Matrix3;
 use std::fmt;
 use std::ops::{Add, Sub};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration as StdDuration;
 use thiserror::Error;
 
 pub mod delta_t;
+mod parse;
+mod serde_impl;
 
 #[cfg(feature = "python-tests")]
 mod python_tests;
@@ -562,10 +565,14 @@ impl Timescale {
     /// the TDB fraction directly and approximates TT from it.
     pub fn tdb_jd(&self, jd: f64) -> Time {
         let whole = jd.floor();
-        let tdb_frac = jd - whole;
+        self.tdb_jd_parts(whole, jd - whole)
+    }
+
+    /// TDB Julian date given as whole and fractional parts.
+    fn tdb_jd_parts(&self, whole: f64, tdb_frac: f64) -> Time {
         // Approximate TT fraction: TT ≈ TDB - (TDB-TT)
         // The correction is tiny (<2ms / 86400s ≈ 2e-8 days)
-        let t = (jd - J2000) / 36525.0;
+        let t = (whole + tdb_frac - J2000) / 36525.0;
         let tdb_minus_tt_days = (0.001657 * f64::sin(628.3076 * t + 6.2401)
             + 0.000022 * f64::sin(575.3385 * t + 4.2970)
             + 0.000014 * f64::sin(1256.6152 * t + 6.1969)
@@ -1246,6 +1253,63 @@ impl Time {
         self.ts.tdb_jd(self.tdb() + days)
     }
 
+    /// Elapsed SI seconds from `earlier` to `self`, measured in TT.
+    ///
+    /// Positive when `self` is later. TT is the uniform timescale `Time`
+    /// stores internally, so the difference is taken on the separate
+    /// whole-day and day-fraction parts and keeps sub-microsecond
+    /// precision even for instants decades apart. Elapsed TDB differs from
+    /// elapsed TT by the periodic TDB-TT term, at most about 3.3 ms over
+    /// half a year and about 1.2 us per hour, so this is also the elapsed
+    /// time to use for ephemeris (TDB) arguments at that precision.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use starfield_core::time::Time;
+    ///
+    /// let a: Time = "2027-06-01T00:00:00Z".parse().unwrap();
+    /// let b = a.add_seconds(90.0);
+    /// assert!((b.seconds_since(&a) - 90.0).abs() < 1e-6);
+    /// ```
+    pub fn seconds_since(&self, earlier: &Time) -> f64 {
+        ((self.whole - earlier.whole) + (self.tt_fraction - earlier.tt_fraction)) * DAY_S
+    }
+
+    /// The same instant moved by `seconds` SI seconds (negative moves
+    /// earlier), on the same timescale.
+    ///
+    /// Whole days and the remaining seconds are applied separately so a
+    /// large offset does not cost precision in the day fraction. As with
+    /// `Time + f64`, the shift is applied uniformly to TT, TAI and TDB.
+    pub fn add_seconds(&self, seconds: f64) -> Time {
+        let whole_days = (seconds / DAY_S).floor();
+        let remainder = seconds - whole_days * DAY_S;
+        self.shifted(whole_days, remainder / DAY_S)
+    }
+
+    /// Shift by `whole_days` plus a day `fraction`, keeping the cached
+    /// UT1 and TDB fractions in step.
+    fn shifted(&self, whole_days: f64, fraction: f64) -> Time {
+        Time {
+            ts: self.ts.clone(),
+            whole: self.whole + whole_days,
+            tt_fraction: self.tt_fraction + fraction,
+            tai_fraction: self.tai_fraction.map(|f| f + fraction),
+            ut1_fraction: self
+                .ut1_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
+            tdb_fraction: self
+                .tdb_fraction
+                .get()
+                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
+            delta_t: OnceLock::new(),
+            shape: self.shape.clone(),
+            leap_second: false,
+        }
+    }
+
     /// Calculate TDB - TT difference in seconds
     fn tdb_minus_tt(&self, jd_tdb: f64) -> f64 {
         // Implementation of USNO Circular 179, eq. 2.6
@@ -1551,6 +1615,48 @@ impl Sub<Duration> for Time {
         let days_fraction = remaining_nanos / 86_400_000_000_000.0;
 
         self - (days + days_fraction)
+    }
+}
+
+impl Add<StdDuration> for Time {
+    type Output = Time;
+
+    /// Move later by a [`std::time::Duration`] of SI seconds.
+    fn add(self, duration: StdDuration) -> Self::Output {
+        &self + duration
+    }
+}
+
+impl Add<StdDuration> for &Time {
+    type Output = Time;
+
+    /// Move later by a [`std::time::Duration`] of SI seconds.
+    fn add(self, duration: StdDuration) -> Self::Output {
+        let secs = duration.as_secs();
+        let whole_days = (secs / 86_400) as f64;
+        let remainder = (secs % 86_400) as f64 + duration.subsec_nanos() as f64 * 1e-9;
+        self.shifted(whole_days, remainder / DAY_S)
+    }
+}
+
+impl Sub<StdDuration> for Time {
+    type Output = Time;
+
+    /// Move earlier by a [`std::time::Duration`] of SI seconds.
+    fn sub(self, duration: StdDuration) -> Self::Output {
+        &self - duration
+    }
+}
+
+impl Sub<StdDuration> for &Time {
+    type Output = Time;
+
+    /// Move earlier by a [`std::time::Duration`] of SI seconds.
+    fn sub(self, duration: StdDuration) -> Self::Output {
+        let secs = duration.as_secs();
+        let whole_days = (secs / 86_400) as f64;
+        let remainder = (secs % 86_400) as f64 + duration.subsec_nanos() as f64 * 1e-9;
+        self.shifted(-whole_days, -remainder / DAY_S)
     }
 }
 

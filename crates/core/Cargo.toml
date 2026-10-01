@@ -65,6 +65,7 @@ tempfile = { version = "3.8", optional = true }
 criterion = "0.5" # Benchmarking
 approx = "0.5"    # Approximate equality assertions
 rstest = "0.18"   # Test fixtures and parameterization
+serde_test = "1"  # Serde token-stream assertions
 tempfile = "3.8"  # Temporary file creation for tests
 # Dev dependencies
 
