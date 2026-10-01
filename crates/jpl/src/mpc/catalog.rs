@@ -25,19 +25,23 @@
 //!
 //! The MPC regenerates MPCORB.DAT daily, but the datastore treats the cached
 //! copy as an immutable snapshot: it is used until it is replaced explicitly.
-//! To take a newer snapshot, remove the key and resolve again, or import a
-//! file you fetched yourself:
+//! To replace the snapshot with a newer one, fetch and validate a file
+//! yourself and import it over the cached copy:
 //!
 //! ```no_run
+//! use std::path::Path;
 //! use starfield_datastore::Datastore;
 //! use starfield_jpl::mpc::catalog::mpcorb_artifact;
 //!
 //! let store = Datastore::from_env().unwrap();
-//! let artifact = mpcorb_artifact().unwrap();
-//! store.remove(&artifact.key).unwrap();
-//! // ...then `MpcorbCatalog::load_default()`, or
-//! // `store.import(&artifact, path)` with a locally fetched file.
+//! store
+//!     .import(&mpcorb_artifact().unwrap(), Path::new("MPCORB.DAT"))
+//!     .unwrap();
 //! ```
+//!
+//! Removing the key and resolving again only re-resolves; it does not
+//! guarantee a newer file. A file still at the legacy cache path is
+//! re-adopted, and a mirror serves whatever snapshot it holds.
 //!
 //! A mirror fill needs the server's manifest to carry the same key; a
 //! mirror that does not know `mpc/MPCORB/MPCORB.DAT` answers 404 and
