@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["", "gaia", "gaia-all", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa", "radial-profiles", "horizons", "sbdb", "mpc", "rubin", "planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum", "catalogs", "jpl", "surfaces"]
+        features: ["", "gaia", "gaia-all", "gaia-extended", "bright-galaxies", "hipparcos", "mast", "nsa", "radial-profiles", "horizons", "sbdb", "mpc", "mpc-parallel", "rubin", "planet-maps", "reflectance-library", "planet-spectra", "solar-spectrum", "catalogs", "jpl", "surfaces"]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

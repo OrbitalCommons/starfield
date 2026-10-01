@@ -49,14 +49,13 @@ pub struct MpcOrbRecord {
     pub last_obs_date: String,
 }
 
+/// Byte columns `start..end` of `line`, trimmed, clipped to the line's
+/// length. Empty when the range starts past the end or a column boundary
+/// falls inside a multi-byte character (MPCORB records are ASCII).
 fn slice_field(line: &str, start: usize, end: usize) -> &str {
-    if line.len() >= end {
-        line[start..end].trim()
-    } else if line.len() > start {
-        line[start..].trim()
-    } else {
-        ""
-    }
+    line.get(start..end.min(line.len()))
+        .map(str::trim)
+        .unwrap_or("")
 }
 
 /// Parse a single MPCORB.DAT record line.
@@ -175,6 +174,18 @@ fn unpack_digit(b: u8) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_non_ascii_lines_return_none_without_panicking() {
+        assert!(parse_mpcorb_line(&"\u{e9}".repeat(100)).is_none());
+        // A multi-byte character straddling the designation/H boundary.
+        let mut line = String::from("0000\u{e9}\u{e9}");
+        line.push_str(&"x".repeat(170));
+        assert!(parse_mpcorb_line(&line).is_none());
+        assert_eq!(slice_field("ab\u{e9}cd", 3, 5), "");
+        assert_eq!(slice_field("abc", 1, 99), "bc");
+        assert_eq!(slice_field("abc", 5, 9), "");
+    }
 
     // Real records from MPCORB.DAT (fetched 2026-03-09)
     const CERES_LINE: &str = "00001    3.35  0.15 K25BL 231.53975   73.29974   80.24963   10.58789  0.0795763  0.21429712   2.7656157  0 MPO964264  7384 126 1801-2026 0.69 M-v 30k MPCORBFIT  4000      (1) Ceres              20260103";
