@@ -13,9 +13,16 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::FRAC_PI_2;
 
-/// Below this norm a cross product or vector sum is treated as zero when
-/// constructing caps through two or three boundary points.
+/// Below this norm a vector sum is treated as zero (an antipodal pair, or a
+/// set whose mean direction vanishes).
 const DEGENERATE_NORM: f64 = 1e-14;
+
+/// Three boundary points are treated as degenerate (coincident, or on one
+/// great circle within rounding) when the plane normal through them is
+/// shorter than this fraction of the product of the two chord lengths, i.e.
+/// when the triangle's angle at the first point is below about `1e-12` rad.
+/// Relative, so a valid triangle of any size is never misclassified.
+const DEGENERATE_SINE: f64 = 1e-12;
 
 /// A spherical cap: every direction within `radius` radians of `centre`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -46,10 +53,14 @@ impl SphericalCap {
     /// for an empty slice.
     ///
     /// When the points fit in a cap of radius below 90 degrees (any set
-    /// lying inside an open hemisphere) the result is the exact minimum,
-    /// found with Welzl's randomised incremental algorithm adapted to the
-    /// sphere: expected `O(n)` time, with a fixed internal seed so the result
-    /// is deterministic. Its centre is generally *not* the mean direction;
+    /// lying inside an open hemisphere) the result is the minimum cap, found
+    /// with Welzl's randomised incremental algorithm adapted to the sphere:
+    /// expected `O(n)` time, with a fixed internal seed so the result is
+    /// deterministic. "Minimum" holds up to floating-point rounding: the
+    /// incremental steps accept points up to `1e-12` rad outside a
+    /// candidate cap, and tests check the radius against brute force to a
+    /// relative `1e-9` (absolute `1e-15` rad) for caps from `1e-8` rad to
+    /// tens of degrees. Its centre is generally *not* the mean direction;
     /// for points spread along a great-circle arc it is the arc midpoint.
     ///
     /// Sets that do not fit in a hemisphere have no unique minimum under
@@ -130,29 +141,63 @@ impl Cap {
         }
     }
 
-    /// Smallest cap with `a`, `b` and `c` on its boundary.
+    /// Smallest cap with `a`, `b` and `c` on its boundary: their circumcap,
+    /// or the widest pair's cap when that already contains the third point
+    /// or the triangle is degenerate.
+    ///
+    /// The circumcentre is the normal of the plane through the three points.
+    /// Computing it from raw unit-vector chords is ill-conditioned for small
+    /// triangles: the plane's tilt depends on the chords' radial parts (of
+    /// order the squared separation), which unit vectors carry only to about
+    /// `1e-16` absolute. So the chords are built in a tangent frame at `a`,
+    /// with each radial part rebuilt analytically from the tangential one;
+    /// the centre is then accurate to the inputs' own `~1e-16` rad
+    /// positional precision at every scale.
     fn three(a: &Vector3<f64>, b: &Vector3<f64>, c: &Vector3<f64>) -> Self {
-        let normal = (b - a).cross(&(c - a));
+        let widest = [Self::two(a, b), Self::two(a, c), Self::two(b, c)]
+            .into_iter()
+            .fold(Self::point(a), |best, cap| {
+                if cap.radius > best.radius {
+                    cap
+                } else {
+                    best
+                }
+            });
+        if [a, b, c].iter().all(|p| widest.contains(p)) {
+            return widest;
+        }
+
+        let e1 = a.cross(&any_perpendicular(a)).normalize();
+        let e2 = a.cross(&e1);
+        let chord = |p: &Vector3<f64>| {
+            let (x, y) = (e1.dot(p), e2.dot(p));
+            let t2 = x * x + y * y;
+            // 1 - cos(theta) from sin^2(theta) without cancellation;
+            // sign follows a.p for chords past 90 degrees.
+            let cos = a.dot(p);
+            let drop = if cos >= 0.0 {
+                t2 / (1.0 + (1.0 - t2).max(0.0).sqrt())
+            } else {
+                1.0 - cos
+            };
+            Vector3::new(x, y, -drop)
+        };
+        let (db, dc) = (chord(b), chord(c));
+        let normal = db.cross(&dc);
         let norm = normal.norm();
-        if norm < DEGENERATE_NORM {
-            // Coincident or co-great-circle points: the widest pair spans.
-            return [Self::two(a, b), Self::two(a, c), Self::two(b, c)]
-                .into_iter()
-                .fold(Self::point(a), |best, cap| {
-                    if cap.radius > best.radius {
-                        cap
-                    } else {
-                        best
-                    }
-                });
+        if norm.is_nan() || norm <= DEGENERATE_SINE * db.norm() * dc.norm() {
+            return widest;
         }
-        let mut centre = normal / norm;
-        if centre.dot(a) < 0.0 {
-            centre = -centre;
+        let mut local = normal / norm;
+        if local.z < 0.0 {
+            local = -local;
         }
+        let centre = (e1 * local.x + e2 * local.y + a * local.z).normalize();
         Self {
             centre,
-            radius: separation(&centre, a),
+            radius: separation(&centre, a)
+                .max(separation(&centre, b))
+                .max(separation(&centre, c)),
         }
     }
 }
@@ -306,6 +351,126 @@ mod tests {
                     .map(|p| separation(&moved, &unit(p)))
                     .fold(0.0, f64::max);
                 assert!(worst >= cap.radius - 1e-12);
+            }
+        }
+    }
+
+    /// Radius of the minimum cap by brute force over every pair and triple.
+    fn brute_force_radius(pts: &[Equatorial]) -> f64 {
+        let v: Vec<Vector3<f64>> = pts.iter().map(unit).collect();
+        let encloses = |cap: &Cap| {
+            v.iter()
+                .all(|p| separation(&cap.centre, p) <= cap.radius * (1.0 + 1e-9) + 1e-15)
+        };
+        let mut best = f64::INFINITY;
+        for i in 0..v.len() {
+            for j in i + 1..v.len() {
+                let cap = Cap::two(&v[i], &v[j]);
+                if encloses(&cap) {
+                    best = best.min(cap.radius);
+                }
+                for k in j + 1..v.len() {
+                    let cap = Cap::three(&v[i], &v[j], &v[k]);
+                    if encloses(&cap) {
+                        best = best.min(cap.radius);
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    /// Tangent-plane offset `(x, y)` (east, north) about `origin`, mapped
+    /// back to the sphere through its gnomonic inverse.
+    fn offset(origin: &Equatorial, x: f64, y: f64) -> Equatorial {
+        let (e, n, r) = crate::framelib::attitude::local_triad(origin);
+        Equatorial::from_cartesian(Cartesian3::from_vector3((r + x * e + y * n).normalize()))
+    }
+
+    /// The scalene acute triangle (0,0), (4,0), (1,3) in units of `scale`
+    /// radians, placed about `origin`.
+    fn small_triangle(origin: Equatorial, scale: f64) -> [Equatorial; 3] {
+        [(0.0, 0.0), (4.0, 0.0), (1.0, 3.0)].map(|(x, y)| offset(&origin, x * scale, y * scale))
+    }
+
+    #[test]
+    fn small_acute_triangle_uses_its_circumcap() {
+        // Planar circumradius of (0,0), (4,0), (1,3): R = abc / (4K) with
+        // sides 4, sqrt(10), sqrt(18) and area 6.
+        let planar_r = 4.0 * 10.0_f64.sqrt() * 18.0_f64.sqrt() / 24.0;
+        for origin in [
+            Equatorial::new(0.0, 0.0),
+            deg(123.4, -56.7),
+            deg(10.0, 89.0),
+        ] {
+            for scale in [1e-8, 1e-6, 1e-3] {
+                let pts = small_triangle(origin, scale);
+                let cap = SphericalCap::enclosing(&pts).unwrap();
+                assert!(pts.iter().all(|p| cap.contains(p)));
+                // Every vertex lies on the boundary of the circumcap.
+                // (`angular_distance` uses acos, too coarse at this scale.)
+                for p in &pts {
+                    let d = separation(&unit(&cap.centre), &unit(p));
+                    assert!(
+                        (d - cap.radius).abs() <= 1e-9 * cap.radius + 1e-15,
+                        "scale {scale}: vertex at {d}, radius {}",
+                        cap.radius
+                    );
+                }
+                // Gnomonic distortion is second order in the vertices' offsets
+                // (up to 4 * scale).
+                let expected = planar_r * scale;
+                assert!(
+                    (cap.radius - expected).abs()
+                        <= expected * (1e-9 + 20.0 * scale * scale) + 1e-15,
+                    "scale {scale}: radius {} vs planar {expected}",
+                    cap.radius
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reviewer_triangle_is_not_degenerate() {
+        let pts = [
+            Equatorial::new(0.0, 0.0),
+            Equatorial::new(4e-8, 0.0),
+            Equatorial::new(1e-8, 3e-8),
+        ];
+        let cap = SphericalCap::enclosing(&pts).unwrap();
+        assert!(pts.iter().all(|p| cap.contains(p)));
+        let planar_r = 4.0 * 10.0_f64.sqrt() * 18.0_f64.sqrt() / 24.0 * 1e-8;
+        assert!(
+            (cap.radius - planar_r).abs() <= 1e-9 * planar_r,
+            "{}",
+            cap.radius
+        );
+    }
+
+    #[test]
+    fn small_random_sets_match_brute_force_at_every_scale() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let origins: Vec<Equatorial> = RandomEquatorial::with_seed(3).take(6).collect();
+        for origin in origins {
+            for scale in [1e-8, 1e-5, 1e-2, 0.3] {
+                for n in 3..=7 {
+                    let pts: Vec<Equatorial> = (0..n)
+                        .map(|_| {
+                            use rand::Rng;
+                            let (x, y): (f64, f64) =
+                                (rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0));
+                            offset(&origin, x * scale, y * scale)
+                        })
+                        .collect();
+                    let cap = SphericalCap::enclosing(&pts).unwrap();
+                    assert!(pts.iter().all(|p| cap.contains(p)));
+                    let brute = brute_force_radius(&pts);
+                    assert!(
+                        cap.radius <= brute * (1.0 + 1e-9) + 1e-15,
+                        "scale {scale}, n {n}: welzl {} vs brute {brute}",
+                        cap.radius
+                    );
+                }
             }
         }
     }
