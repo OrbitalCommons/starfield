@@ -25,7 +25,8 @@
 //!   input and are derived from TT when absent.
 //! * `leap_second` is written only when `true`.
 //! * `jd_tdb` (TDB Julian date as one `f64`) and `utc` (ISO 8601, to the
-//!   microsecond; omitted if the UTC conversion fails) are for human
+//!   microsecond; omitted if the UTC conversion fails or the time is inside a leap
+//!   second, which the calendar formatter cannot print as second 60) are for human
 //!   readers and other tools. They are ignored when `whole` and
 //!   `tt_fraction` are present.
 //!
@@ -54,7 +55,7 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use serde::de::{self, Deserializer, IgnoredAny, MapAccess, Visitor};
-use serde::ser::{SerializeStruct, Serializer};
+use serde::ser::{self, SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 
 use super::{once_with, Time, Timescale};
@@ -132,7 +133,16 @@ fn require_finite(field: &str, value: f64) -> Result<(), String> {
 
 impl Serialize for Time {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Refuse non-finite parts before deriving anything from them: the
+        // output could not be read back, and the UTC lookup assumes a
+        // finite date.
+        require_finite("whole", self.whole).map_err(ser::Error::custom)?;
+        require_finite("tt_fraction", self.tt_fraction).map_err(ser::Error::custom)?;
+        if let Some(tai) = self.tai_fraction {
+            require_finite("tai_fraction", tai).map_err(ser::Error::custom)?;
+        }
         let tdb_fraction = self.tdb_fraction_value();
+        require_finite("tdb_fraction", tdb_fraction).map_err(ser::Error::custom)?;
         if !serializer.is_human_readable() {
             return Compact {
                 whole: self.whole,
@@ -144,7 +154,13 @@ impl Serialize for Time {
             .serialize(serializer);
         }
         let jd_tdb = self.whole + tdb_fraction;
-        let utc = self.utc_iso('T', 6).ok();
+        // The calendar formatter cannot print second 60, so a leap-second
+        // instant omits `utc` rather than show the following midnight.
+        let utc = if self.leap_second {
+            None
+        } else {
+            self.utc_iso('T', 6).ok()
+        };
 
         let mut state = serializer.serialize_struct("Time", FIELDS.len())?;
         state.serialize_field("whole", &self.whole)?;
@@ -249,6 +265,47 @@ mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
     use serde_json::Value;
+
+    #[test]
+    fn non_finite_times_refuse_to_serialise() {
+        use serde_test::{assert_ser_tokens_error, Configure};
+        let ts = Timescale::default();
+        for (t, message) in [
+            (ts.tt_jd(f64::NAN, None), "`whole` must be finite, got NaN"),
+            (
+                ts.tt_jd(f64::INFINITY, None),
+                "`whole` must be finite, got inf",
+            ),
+            (
+                ts.tt_jd(2_461_558.0, Some(f64::NAN)),
+                "`tt_fraction` must be finite, got NaN",
+            ),
+        ] {
+            let err = serde_json::to_string(&t).unwrap_err().to_string();
+            assert_eq!(err, message);
+            assert_ser_tokens_error(&t.clone().compact(), &[], message);
+            assert_ser_tokens_error(&t.readable(), &[], message);
+        }
+    }
+
+    #[test]
+    fn leap_second_omits_utc_and_round_trips_its_flag() {
+        let t: Time = "2016-12-31T23:59:60Z".parse().unwrap();
+        assert!(t.is_leap_second());
+        let v: Value = serde_json::to_value(&t).unwrap();
+        assert!(v.get("utc").is_none(), "{v}");
+        assert_eq!(v["leap_second"], true);
+        let back: Time = serde_json::from_value(v).unwrap();
+        assert!(back.is_leap_second());
+        assert_eq!(back.tt().to_bits(), t.tt().to_bits());
+        assert_eq!(back.tai().to_bits(), t.tai().to_bits());
+
+        let ordinary: Time = "2016-12-31T23:59:59Z".parse().unwrap();
+        let v: Value = serde_json::to_value(&ordinary).unwrap();
+        assert!(v["utc"]
+            .as_str()
+            .is_some_and(|u| u.starts_with("2016-12-31T23:59:59")));
+    }
 
     fn round_trip(t: &Time) -> Time {
         let json = serde_json::to_string(t).unwrap();

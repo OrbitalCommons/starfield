@@ -1302,7 +1302,8 @@ impl Time {
             tdb_fraction: OnceLock::new(),
             delta_t: OnceLock::new(),
             shape: self.shape.clone(),
-            leap_second: false,
+            // A zero shift is the same instant; any other leaves the leap second.
+            leap_second: self.leap_second && whole_days == 0.0 && fraction == 0.0,
         }
     }
 
@@ -1533,7 +1534,7 @@ impl Add<f64> for Time {
     /// Move later by `days` days of TT; TDB and UT1 are recomputed.
     fn add(self, days: f64) -> Self::Output {
         let whole_days = days.floor();
-        self.shifted(whole_days, days - whole_days)
+        self.shifted(whole_days, days.rem_euclid(1.0))
     }
 }
 
@@ -1954,6 +1955,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_zero_shift_keeps_a_leap_second() {
+        let ts = Timescale::default();
+        let leap = ts.parse("2016-12-31T23:59:60Z").unwrap();
+        assert!(leap.is_leap_second());
+        for (name, same) in [
+            ("add_seconds(0)", leap.add_seconds(0.0)),
+            ("+ Duration::ZERO", &leap + StdDuration::ZERO),
+            ("- Duration::ZERO", &leap - StdDuration::ZERO),
+            ("+ 0 days", leap.clone() + 0.0),
+        ] {
+            assert!(same.is_leap_second(), "{name}");
+            assert_eq!(same.tt().to_bits(), leap.tt().to_bits(), "{name}");
+            assert_eq!(same.tai().to_bits(), leap.tai().to_bits(), "{name}");
+        }
+        assert!(!leap.add_seconds(0.5).is_leap_second());
+        assert!(!leap.add_seconds(-0.5).is_leap_second());
     }
 
     #[test]
