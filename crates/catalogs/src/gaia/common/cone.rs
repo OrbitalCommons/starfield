@@ -6,6 +6,7 @@
 //! by the rest of the crate (`GaiaCore::unit_vector`).
 
 use nalgebra::Vector3;
+use starfield_core::framelib::spherical_cap::SphericalCap;
 
 /// A circular spherical cap centred at `(ra, dec)` with angular `radius`.
 ///
@@ -55,9 +56,28 @@ impl Cone {
     }
 }
 
+impl From<SphericalCap> for Cone {
+    fn from(cap: SphericalCap) -> Self {
+        Self::from_degrees(
+            cap.centre.ra_degrees(),
+            cap.centre.dec_degrees(),
+            cap.radius.to_degrees(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use starfield_core::Equatorial;
+
+    #[test]
+    fn from_spherical_cap_preserves_geometry() {
+        let cap = SphericalCap::new(Equatorial::from_degrees(30.0, -10.0), 2.0_f64.to_radians());
+        let cone = Cone::from(cap);
+        assert!(cone.contains_radec_deg(31.5, -10.0));
+        assert!(!cone.contains_radec_deg(32.5, -10.0));
+    }
 
     #[test]
     fn centre_is_inside() {

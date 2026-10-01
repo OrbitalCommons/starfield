@@ -1,6 +1,8 @@
+pub mod attitude;
 mod frame_rotations;
 pub mod inertial;
 pub mod random;
+pub mod spherical_cap;
 
 #[cfg(feature = "python-tests")]
 mod python_tests;
