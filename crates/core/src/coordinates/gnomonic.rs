@@ -7,6 +7,16 @@
 //! centre lands at radius `tan(c)`. Only the hemisphere in front of the plane
 //! (`c < 90°`) has an image.
 //!
+//! # Horizon tolerance
+//!
+//! Floating-point trigonometry cannot place a point exactly 90° from the
+//! centre: `cos(pi/2)` evaluates to about `6e-17`, not zero. To keep such
+//! points from projecting to enormous but finite coordinates, a direction is
+//! rejected unless `cos c > HORIZON_COS_TOLERANCE` (`1e-12`), compared
+//! against the direction's own length. Equivalently, points within about
+//! `1e-12` rad of 90° are treated as on the horizon, and every accepted
+//! point has a plane radius below about `1e12`.
+//!
 //! # Standard coordinates
 //!
 //! With the default orientation the plane coordinates are the classical
@@ -64,6 +74,10 @@ use nalgebra::{Matrix3, Vector3};
 
 use crate::coordinates::cartesian::Cartesian3;
 use crate::framelib::inertial::{Equatorial, InertialFrame};
+
+/// Smallest `cos c` (cosine of the angle from the centre) a direction may
+/// have and still project; see the module's horizon tolerance section.
+pub const HORIZON_COS_TOLERANCE: f64 = 1e-12;
 
 /// Gnomonic projection about a fixed centre, with an optional position-angle
 /// rotation of the plane axes.
@@ -143,8 +157,9 @@ impl GnomonicProjection {
     /// Project a sky position to plane coordinates `(u, v)`.
     ///
     /// Returns `None` when the target is 90° or more from the centre, where
-    /// the ray never meets the tangent plane. No other bound is applied:
-    /// points just inside 90° map to arbitrarily large coordinates.
+    /// the ray never meets the tangent plane, or within the
+    /// [horizon tolerance](self#horizon-tolerance) of 90°. Points just inside
+    /// that map to very large coordinates (radius up to about `1e12`).
     pub fn project(&self, target: &Equatorial) -> Option<(f64, f64)> {
         self.project_vector(&target.to_cartesian().to_vector3())
     }
@@ -152,10 +167,14 @@ impl GnomonicProjection {
     /// Project a direction given as an equatorial-frame vector of any
     /// non-zero length to plane coordinates `(u, v)`.
     ///
-    /// Returns `None` when the direction is 90° or more from the centre.
+    /// Returns `None` when the direction is 90° or more from the centre, or
+    /// within the [horizon tolerance](self#horizon-tolerance) of 90°, and for
+    /// a zero or non-finite vector.
     pub fn project_vector(&self, direction: &Vector3<f64>) -> Option<(f64, f64)> {
         let local = self.basis * direction;
-        if local.z <= 0.0 {
+        let length = direction.norm();
+        let in_front = local.z > HORIZON_COS_TOLERANCE * length;
+        if !in_front || !local.x.is_finite() || !local.y.is_finite() {
             return None;
         }
         Some((local.x / local.z, local.y / local.z))
@@ -261,6 +280,44 @@ mod tests {
         assert!(proj.project_vector(&Vector3::new(0.0, 1.0, 0.0)).is_none());
         assert!(proj.project_vector(&Vector3::new(0.0, 0.0, -1.0)).is_none());
         assert!(proj.project(&Equatorial::new(1.5, 0.0)).is_some());
+    }
+
+    #[test]
+    fn test_points_numerically_at_90_degrees_are_rejected() {
+        let proj = GnomonicProjection::new(Equatorial::new(0.0, 0.0));
+        // cos(pi/2) evaluates to ~6e-17 > 0; these must not project.
+        assert!(proj.project(&Equatorial::new(FRAC_PI_2, 0.0)).is_none());
+        assert!(proj.project(&Equatorial::new(0.0, FRAC_PI_2)).is_none());
+        assert!(proj.project(&Equatorial::new(0.0, -FRAC_PI_2)).is_none());
+        assert!(proj
+            .project(&Equatorial::new(3.0 * FRAC_PI_2, 0.0))
+            .is_none());
+        // Inside the tolerance band: rejected.
+        assert!(proj
+            .project(&Equatorial::new(FRAC_PI_2 - 1e-13, 0.0))
+            .is_none());
+        // Just outside it: projects, to radius ~1/1e-11.
+        let (u, v) = proj
+            .project(&Equatorial::new(FRAC_PI_2 - 1e-11, 0.0))
+            .unwrap();
+        assert!(u > 0.9e11 && u < 1.1e11, "u = {u}");
+        assert_abs_diff_eq!(v, 0.0, epsilon = 1e-3);
+    }
+
+    #[test]
+    fn test_horizon_tolerance_is_relative_to_vector_length() {
+        let proj = GnomonicProjection::new(Equatorial::new(0.0, 0.0));
+        let near_horizon = Vector3::new(1e-11, 1.0, 0.0);
+        for scale in [1e-6, 1.0, 1e6] {
+            assert!(proj.project_vector(&(near_horizon * scale)).is_some());
+            assert!(proj
+                .project_vector(&(Vector3::new(1e-13, 1.0, 0.0) * scale))
+                .is_none());
+        }
+        assert!(proj.project_vector(&Vector3::zeros()).is_none());
+        assert!(proj
+            .project_vector(&Vector3::new(f64::NAN, 0.0, 0.0))
+            .is_none());
     }
 
     #[test]
