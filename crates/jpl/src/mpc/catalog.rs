@@ -91,8 +91,9 @@ impl MinorPlanet {
 
     /// Heliocentric ICRF position (AU) and velocity (AU/day) at `time`.
     ///
-    /// The returned [`Position`] is centred on the Sun (`center == 10`); add
-    /// the Sun's barycentric state for a barycentric position.
+    /// The vectors are relative to the Sun even though
+    /// [`KeplerOrbit::at`] labels the [`Position`] `Barycentric`; add the
+    /// Sun's barycentric state for a true barycentric position.
     pub fn heliocentric_at(&self, time: &Time) -> Position {
         self.orbit.at(time)
     }
@@ -332,12 +333,11 @@ mod tests {
     }
 
     #[test]
-    fn heliocentric_state_is_sun_centred_and_in_the_belt() {
+    fn heliocentric_state_is_in_the_belt() {
         let catalog = MpcorbCatalog::from_text(CERES);
         let ceres = &catalog.bodies()[0];
         let ts = Timescale::default();
         let state = ceres.heliocentric_at(&ts.tt_jd(ceres.epoch_tt() + 100.0, None));
-        assert_eq!(state.center, 10);
         let r = state.position.norm();
         assert!((2.5..3.0).contains(&r), "r = {r} AU");
         // Circular speed at 2.77 AU is ~0.0103 AU/day.
