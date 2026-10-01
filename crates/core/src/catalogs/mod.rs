@@ -212,6 +212,41 @@ impl SersicProfile {
             * self.theta_half_arcsec
             * bn.exp()
     }
+
+    /// Major-axis radius, in arcseconds, at which the surface brightness
+    /// falls to `sb_fraction · I_e`.
+    ///
+    /// This is the closed-form inverse of
+    /// [`SersicProfile::surface_brightness_at`] along the major axis:
+    ///
+    /// ```text
+    /// I(r) / I_e = exp[-b_n · ((r/θ_eff)^(1/n) − 1)] = f
+    ///          r = θ_eff · (1 − ln(f) / b_n)^n
+    /// ```
+    ///
+    /// Along the minor axis the same isophote sits at
+    /// `axis_ratio` times the returned radius.
+    ///
+    /// The Sérsic profile has infinite support, so any renderer or
+    /// cone query must pick an isophote at which to truncate it. This
+    /// gives the extent of that isophote: `sb_fraction = 1.0` returns
+    /// `theta_half_arcsec`, and smaller fractions return larger radii.
+    /// The cutoff is the caller's choice: `1e-3` and `1e-4` are typical
+    /// values, with smaller fractions trading a larger footprint for
+    /// less truncated flux. Whether the truncated remainder is negligible
+    /// depends on the source flux, exposure and noise of the consumer.
+    ///
+    /// `sb_fraction` must be positive. Fractions at or above the central
+    /// surface brightness, `exp(b_n)`, have no isophote and return `0.0`;
+    /// `sb_fraction = 0.0` returns `f64::INFINITY`, and negative or NaN
+    /// fractions return NaN.
+    pub fn radius_at_sb_fraction(&self, sb_fraction: f64) -> f64 {
+        let base = 1.0 - sb_fraction.ln() / self.b_n();
+        if base <= 0.0 {
+            return 0.0;
+        }
+        self.theta_half_arcsec * base.powf(self.n)
+    }
 }
 
 /// Lanczos `g = 7` approximation to `Γ(x)`, valid for `x > 0`.
@@ -513,7 +548,7 @@ fn generate_synthetic_stars(
 mod tests {
     use super::*;
     use crate::catalogs::minimal_catalog::{MinimalCatalog, MinimalStar};
-    use approx::assert_abs_diff_eq;
+    use approx::{assert_abs_diff_eq, assert_relative_eq};
 
     /// Test the StarCatalog trait with a simple minimal catalog
     #[test]
@@ -692,6 +727,78 @@ mod tests {
             p.b_n().exp(),
             epsilon = 1e-9
         );
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_of_one_is_half_light_radius() {
+        for n in [0.5, 1.0, 2.5, 4.0, 6.0] {
+            let p = sersic_profile(n, 0.4, 20.0);
+            assert_relative_eq!(
+                p.radius_at_sb_fraction(1.0),
+                p.theta_half_arcsec,
+                max_relative = 1e-12
+            );
+        }
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_inverts_surface_brightness_along_major_axis() {
+        // PA = 0 puts the major axis along +y, so evaluating the SB at
+        // (0, r) must return the requested fraction.
+        for n in [0.5, 1.0, 2.5, 4.0, 6.0] {
+            let p = sersic_profile(n, 0.6, 0.0);
+            for frac in [1.5, 0.5, 1e-2, 1e-3, 1e-4, 1e-6] {
+                let r = p.radius_at_sb_fraction(frac);
+                assert_relative_eq!(p.surface_brightness_at(0.0, r), frac, max_relative = 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_minor_axis_scales_by_axis_ratio() {
+        // PA = 90° puts the major axis along +x; the same isophote on
+        // the minor axis (+y) sits at axis_ratio times the radius.
+        let p = sersic_profile(4.0, 0.3, 90.0);
+        let r = p.radius_at_sb_fraction(1e-4);
+        assert_relative_eq!(
+            p.surface_brightness_at(0.0, r * p.axis_ratio),
+            1e-4,
+            max_relative = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_de_vaucouleurs_reference_value() {
+        // n = 4, theta_eff = 2″, f = 1e-4:
+        // r = 2 · (1 + ln(1e4) / b_4)^4 with b_4 = 7.66925 → ≈ 46.93″.
+        let p = sersic_profile(4.0, 1.0, 0.0);
+        let expected = 2.0 * (1.0 + 1e4_f64.ln() / p.b_n()).powi(4);
+        assert_relative_eq!(
+            p.radius_at_sb_fraction(1e-4),
+            expected,
+            max_relative = 1e-12
+        );
+        assert_abs_diff_eq!(p.radius_at_sb_fraction(1e-4), 46.93, epsilon = 0.01);
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_grows_as_fraction_shrinks() {
+        let p = sersic_profile(2.5, 0.8, 10.0);
+        let fracs = [1.0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-6];
+        for pair in fracs.windows(2) {
+            assert!(p.radius_at_sb_fraction(pair[1]) > p.radius_at_sb_fraction(pair[0]));
+        }
+    }
+
+    #[test]
+    fn test_radius_at_sb_fraction_edge_cases() {
+        let p = sersic_profile(4.0, 0.6, 0.0);
+        // At and above the central surface brightness there is no isophote.
+        assert_eq!(p.radius_at_sb_fraction(p.b_n().exp()), 0.0);
+        assert_eq!(p.radius_at_sb_fraction(1e6), 0.0);
+        assert_eq!(p.radius_at_sb_fraction(0.0), f64::INFINITY);
+        assert!(p.radius_at_sb_fraction(-1.0).is_nan());
+        assert!(p.radius_at_sb_fraction(f64::NAN).is_nan());
     }
 
     #[test]
