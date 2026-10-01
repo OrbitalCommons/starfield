@@ -12,9 +12,12 @@ use nalgebra::Matrix3;
 use std::fmt;
 use std::ops::{Add, Sub};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration as StdDuration;
 use thiserror::Error;
 
 pub mod delta_t;
+mod parse;
+mod serde_impl;
 
 #[cfg(feature = "python-tests")]
 mod python_tests;
@@ -562,10 +565,14 @@ impl Timescale {
     /// the TDB fraction directly and approximates TT from it.
     pub fn tdb_jd(&self, jd: f64) -> Time {
         let whole = jd.floor();
-        let tdb_frac = jd - whole;
+        self.tdb_jd_parts(whole, jd - whole)
+    }
+
+    /// TDB Julian date given as whole and fractional parts.
+    fn tdb_jd_parts(&self, whole: f64, tdb_frac: f64) -> Time {
         // Approximate TT fraction: TT ≈ TDB - (TDB-TT)
         // The correction is tiny (<2ms / 86400s ≈ 2e-8 days)
-        let t = (jd - J2000) / 36525.0;
+        let t = (whole + tdb_frac - J2000) / 36525.0;
         let tdb_minus_tt_days = (0.001657 * f64::sin(628.3076 * t + 6.2401)
             + 0.000022 * f64::sin(575.3385 * t + 4.2970)
             + 0.000014 * f64::sin(1256.6152 * t + 6.1969)
@@ -636,23 +643,20 @@ impl Timescale {
 
     /// Create a time from a UT1 Julian date
     pub fn ut1_jd(&self, jd: f64) -> Time {
-        // Similar approach to ut1(), but starting with a JD
-        let ut1 = jd;
+        let whole = jd.floor();
+        self.ut1_jd_parts(whole, jd - whole)
+    }
 
-        // First approximation
-        let tt_approx = ut1;
-        let delta_t_approx = self.delta_t(tt_approx);
-
-        // Better approximation
-        let tt_better = ut1 + delta_t_approx / DAY_S;
-        let delta_t_better = self.delta_t(tt_better);
-
-        // final value
-        let delta_t_days = delta_t_better / DAY_S;
-
-        let whole = ut1.floor();
-        let ut1_fraction = ut1 - whole;
-        let tt_fraction = ut1_fraction + delta_t_days;
+    /// UT1 Julian date given as whole and fractional parts, kept apart so
+    /// the day fraction is not rounded to the resolution of one `f64`.
+    fn ut1_jd_parts(&self, whole: f64, ut1_fraction: f64) -> Time {
+        // Delta-T varies slowly, so evaluating it on the combined f64 date
+        // is exact to far below its own uncertainty. Iterate once so it is
+        // evaluated at (approximately) the TT instant.
+        let ut1 = whole + ut1_fraction;
+        let delta_t_approx = self.delta_t(ut1);
+        let delta_t_better = self.delta_t(ut1 + delta_t_approx / DAY_S);
+        let tt_fraction = ut1_fraction + delta_t_better / DAY_S;
 
         Time {
             ts: self.clone(),
@@ -1246,6 +1250,63 @@ impl Time {
         self.ts.tdb_jd(self.tdb() + days)
     }
 
+    /// Elapsed SI seconds from `earlier` to `self`, measured in TT.
+    ///
+    /// Positive when `self` is later. TT is the uniform timescale `Time`
+    /// stores internally, so the difference is taken on the separate
+    /// whole-day and day-fraction parts and keeps sub-microsecond
+    /// precision even for instants decades apart. Elapsed TDB differs from
+    /// elapsed TT by the periodic TDB-TT term, at most about 3.3 ms over
+    /// half a year and about 1.2 us per hour, so this is also the elapsed
+    /// time to use for ephemeris (TDB) arguments at that precision.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use starfield_core::time::Time;
+    ///
+    /// let a: Time = "2027-06-01T00:00:00Z".parse().unwrap();
+    /// let b = a.add_seconds(90.0);
+    /// assert!((b.seconds_since(&a) - 90.0).abs() < 1e-6);
+    /// ```
+    pub fn seconds_since(&self, earlier: &Time) -> f64 {
+        ((self.whole - earlier.whole) + (self.tt_fraction - earlier.tt_fraction)) * DAY_S
+    }
+
+    /// The same instant moved by `seconds` SI seconds (negative moves
+    /// earlier), on the same timescale.
+    ///
+    /// Whole days and the remaining seconds are applied separately so a
+    /// large offset does not cost precision in the day fraction. The shift
+    /// is applied to TT and TAI; TDB, UT1 and delta-T are recomputed at the
+    /// new instant.
+    pub fn add_seconds(&self, seconds: f64) -> Time {
+        let whole_days = (seconds / DAY_S).floor();
+        let remainder = seconds - whole_days * DAY_S;
+        self.shifted(whole_days, remainder / DAY_S)
+    }
+
+    /// Shift by `whole_days` plus a day `fraction` of TT.
+    ///
+    /// TT and TAI move together by the same SI interval. UT1, TDB and
+    /// delta-T are functions of the instant rather than offsets from TT,
+    /// so the new time starts with empty caches and recomputes them at the
+    /// shifted TT, exactly as a freshly constructed `Time` would.
+    fn shifted(&self, whole_days: f64, fraction: f64) -> Time {
+        Time {
+            ts: self.ts.clone(),
+            whole: self.whole + whole_days,
+            tt_fraction: self.tt_fraction + fraction,
+            tai_fraction: self.tai_fraction.map(|f| f + fraction),
+            ut1_fraction: OnceLock::new(),
+            tdb_fraction: OnceLock::new(),
+            delta_t: OnceLock::new(),
+            shape: self.shape.clone(),
+            // A zero shift is the same instant; any other leaves the leap second.
+            leap_second: self.leap_second && whole_days == 0.0 && fraction == 0.0,
+        }
+    }
+
     /// Calculate TDB - TT difference in seconds
     fn tdb_minus_tt(&self, jd_tdb: f64) -> f64 {
         // Implementation of USNO Circular 179, eq. 2.6
@@ -1470,27 +1531,10 @@ impl fmt::Display for Time {
 impl Add<f64> for Time {
     type Output = Time;
 
+    /// Move later by `days` days of TT; TDB and UT1 are recomputed.
     fn add(self, days: f64) -> Self::Output {
         let whole_days = days.floor();
-        let fraction = days - whole_days;
-
-        Time {
-            ts: self.ts.clone(),
-            whole: self.whole + whole_days,
-            tt_fraction: self.tt_fraction + fraction,
-            tai_fraction: self.tai_fraction.map(|f| f + fraction),
-            ut1_fraction: self
-                .ut1_fraction
-                .get()
-                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
-            tdb_fraction: self
-                .tdb_fraction
-                .get()
-                .map_or_else(OnceLock::new, |f| once_with(*f + fraction)),
-            delta_t: OnceLock::new(), // Recalculate when needed
-            shape: self.shape,
-            leap_second: false,
-        }
+        self.shifted(whole_days, days.rem_euclid(1.0))
     }
 }
 
@@ -1509,27 +1553,10 @@ impl Add<Duration> for Time {
 impl Sub<f64> for Time {
     type Output = Time;
 
+    /// Move earlier by `days` days of TT; TDB and UT1 are recomputed.
     fn sub(self, days: f64) -> Self::Output {
         let whole_days = days.floor();
-        let fraction = days - whole_days;
-
-        Time {
-            ts: self.ts.clone(),
-            whole: self.whole - whole_days,
-            tt_fraction: self.tt_fraction - fraction,
-            tai_fraction: self.tai_fraction.map(|f| f - fraction),
-            ut1_fraction: self
-                .ut1_fraction
-                .get()
-                .map_or_else(OnceLock::new, |f| once_with(*f - fraction)),
-            tdb_fraction: self
-                .tdb_fraction
-                .get()
-                .map_or_else(OnceLock::new, |f| once_with(*f - fraction)),
-            delta_t: OnceLock::new(), // Recalculate when needed
-            shape: self.shape,
-            leap_second: false,
-        }
+        self.shifted(-whole_days, -(days - whole_days))
     }
 }
 
@@ -1551,6 +1578,48 @@ impl Sub<Duration> for Time {
         let days_fraction = remaining_nanos / 86_400_000_000_000.0;
 
         self - (days + days_fraction)
+    }
+}
+
+impl Add<StdDuration> for Time {
+    type Output = Time;
+
+    /// Move later by a [`std::time::Duration`] of SI seconds.
+    fn add(self, duration: StdDuration) -> Self::Output {
+        &self + duration
+    }
+}
+
+impl Add<StdDuration> for &Time {
+    type Output = Time;
+
+    /// Move later by a [`std::time::Duration`] of SI seconds.
+    fn add(self, duration: StdDuration) -> Self::Output {
+        let secs = duration.as_secs();
+        let whole_days = (secs / 86_400) as f64;
+        let remainder = (secs % 86_400) as f64 + duration.subsec_nanos() as f64 * 1e-9;
+        self.shifted(whole_days, remainder / DAY_S)
+    }
+}
+
+impl Sub<StdDuration> for Time {
+    type Output = Time;
+
+    /// Move earlier by a [`std::time::Duration`] of SI seconds.
+    fn sub(self, duration: StdDuration) -> Self::Output {
+        &self - duration
+    }
+}
+
+impl Sub<StdDuration> for &Time {
+    type Output = Time;
+
+    /// Move earlier by a [`std::time::Duration`] of SI seconds.
+    fn sub(self, duration: StdDuration) -> Self::Output {
+        let secs = duration.as_secs();
+        let whole_days = (secs / 86_400) as f64;
+        let remainder = (secs % 86_400) as f64 + duration.subsec_nanos() as f64 * 1e-9;
+        self.shifted(-whole_days, -remainder / DAY_S)
     }
 }
 
@@ -1812,6 +1881,137 @@ mod tests {
         let jd_test = 2452345.5; // Some arbitrary JD
         let jd_result = ts.tt_jd(jd_test, None).tt();
         assert_relative_eq!(jd_result, jd_test, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_add_seconds_and_seconds_since() {
+        let ts = Timescale::default();
+        let base = ts.tdb_jd(2_461_558.5);
+        let later = base.add_seconds(3_600.0);
+        approx::assert_abs_diff_eq!(later.seconds_since(&base), 3_600.0, epsilon = 1e-6);
+        let earlier = base.add_seconds(-90.0);
+        approx::assert_abs_diff_eq!(earlier.seconds_since(&base), -90.0, epsilon = 1e-6);
+        approx::assert_abs_diff_eq!(base.seconds_since(&earlier), 90.0, epsilon = 1e-6);
+        // A decade of offset keeps microsecond resolution in the fraction.
+        let decade = 10.0 * 365.25 * DAY_S + 0.000_001;
+        let far = base.add_seconds(decade);
+        approx::assert_abs_diff_eq!(far.seconds_since(&base), decade, epsilon = 1e-7);
+    }
+
+    /// Every way of moving a `Time` by an interval of TT.
+    fn shift_forms(t: &Time, seconds: f64) -> Vec<(&'static str, Time)> {
+        let step = StdDuration::from_secs_f64(seconds.abs());
+        let by_std = if seconds >= 0.0 { t + step } else { t - step };
+        vec![
+            ("add_seconds", t.add_seconds(seconds)),
+            ("std_duration", by_std),
+            ("add_days", t.clone() + seconds / DAY_S),
+            ("sub_days", t.clone() - (-seconds / DAY_S)),
+        ]
+    }
+
+    fn assert_derived_bits_equal(label: &str, a: &Time, b: &Time) {
+        assert_eq!(a.tt().to_bits(), b.tt().to_bits(), "{label}: tt");
+        assert_eq!(a.tdb().to_bits(), b.tdb().to_bits(), "{label}: tdb");
+        assert_eq!(a.ut1().to_bits(), b.ut1().to_bits(), "{label}: ut1");
+        assert_eq!(
+            a.delta_t().to_bits(),
+            b.delta_t().to_bits(),
+            "{label}: delta_t"
+        );
+    }
+
+    #[test]
+    fn test_shift_ignores_warm_derived_caches() {
+        let ts = Timescale::default();
+        let starts = [
+            ts.utc((2027, 6, 1, 0, 0, 0.0)),
+            ts.tdb_jd(2_461_558.5),
+            ts.ut1_jd(2_455_000.75),
+            ts.tt_jd(J2000, Some(0.25)),
+        ];
+        let shifts = [
+            90.0 * DAY_S,
+            -120.0 * DAY_S + 17.5,
+            3.0 * 365.25 * DAY_S,
+            -7.0 * 365.25 * DAY_S,
+        ];
+        for start in &starts {
+            let cold = start.clone();
+            let warm = start.clone();
+            warm.tdb();
+            warm.ut1();
+            warm.delta_t();
+            serde_json::to_string(&warm).unwrap();
+            for &seconds in &shifts {
+                for ((name, from_cold), (_, from_warm)) in shift_forms(&cold, seconds)
+                    .into_iter()
+                    .zip(shift_forms(&warm, seconds))
+                {
+                    let label = format!("{name} by {seconds} s from tt={}", start.tt());
+                    assert_derived_bits_equal(&label, &from_warm, &from_cold);
+                    let fresh = ts.tt_jd(from_cold.whole, Some(from_cold.tt_fraction));
+                    assert_derived_bits_equal(&label, &from_cold, &fresh);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_zero_shift_keeps_a_leap_second() {
+        let ts = Timescale::default();
+        let leap = ts.parse("2016-12-31T23:59:60Z").unwrap();
+        assert!(leap.is_leap_second());
+        for (name, same) in [
+            ("add_seconds(0)", leap.add_seconds(0.0)),
+            ("+ Duration::ZERO", &leap + StdDuration::ZERO),
+            ("- Duration::ZERO", &leap - StdDuration::ZERO),
+            ("+ 0 days", leap.clone() + 0.0),
+        ] {
+            assert!(same.is_leap_second(), "{name}");
+            assert_eq!(same.tt().to_bits(), leap.tt().to_bits(), "{name}");
+            assert_eq!(same.tai().to_bits(), leap.tai().to_bits(), "{name}");
+        }
+        assert!(!leap.add_seconds(0.5).is_leap_second());
+        assert!(!leap.add_seconds(-0.5).is_leap_second());
+    }
+
+    #[test]
+    fn test_shift_recomputes_tdb_minus_tt() {
+        // TDB-TT has an annual term of ~1.66 ms; half a year later it has
+        // changed sign, so carrying the cached TDB offset would be off by
+        // milliseconds.
+        let ts = Timescale::default();
+        let t = ts.tt_jd(2_461_558.5, None);
+        t.tdb();
+        let later = t.add_seconds(182.0 * DAY_S);
+        let fresh = ts.tt_jd(later.tt(), None);
+        approx::assert_abs_diff_eq!(
+            (later.tdb() - later.tt()) * DAY_S,
+            (fresh.tdb() - fresh.tt()) * DAY_S,
+            epsilon = 1e-9
+        );
+    }
+
+    #[test]
+    fn test_std_duration_ops() {
+        let ts = Timescale::default();
+        let base = ts.tt_jd(J2000, None);
+        let step = StdDuration::new(2 * 86_400 + 30, 250_000_000);
+        let later = &base + step;
+        approx::assert_abs_diff_eq!(
+            later.seconds_since(&base),
+            2.0 * 86_400.0 + 30.25,
+            epsilon = 1e-6
+        );
+        let back = later.clone() - step;
+        approx::assert_abs_diff_eq!(back.seconds_since(&base), 0.0, epsilon = 1e-6);
+        assert_eq!((base.clone() + step), later);
+        approx::assert_abs_diff_eq!(
+            (&base - StdDuration::from_secs(60)).seconds_since(&base),
+            -60.0,
+            epsilon = 1e-6
+        );
     }
 
     #[test]
