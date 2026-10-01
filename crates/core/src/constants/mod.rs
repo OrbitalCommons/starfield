@@ -110,17 +110,17 @@ mod tests {
     #[test]
     fn radiation_constants_match_codata_2018() {
         // First radiation constant c1 = 2 pi h c^2 and second radiation
-        // constant c2 = h c / k_B, as tabulated (to 10 significant figures)
-        // in CODATA 2018.
+        // constant c2 = h c / k_B. CODATA 2018 truncates both exact values
+        // to 10 significant figures, so agreement is checked to 1e-9.
         assert_relative_eq!(
             2.0 * PI * PLANCK_CONSTANT * C * C,
             3.741_771_852e-16,
-            max_relative = 1e-10
+            max_relative = 1e-9
         );
         assert_relative_eq!(
             PLANCK_CONSTANT * C / BOLTZMANN_CONSTANT,
             1.438_776_877e-2,
-            max_relative = 1e-10
+            max_relative = 1e-9
         );
     }
 
@@ -130,6 +130,6 @@ mod tests {
         // 5.670 374 419e-8 W m^-2 K^-4.
         let sigma = 2.0 * PI.powi(5) * BOLTZMANN_CONSTANT.powi(4)
             / (15.0 * PLANCK_CONSTANT.powi(3) * C * C);
-        assert_relative_eq!(sigma, 5.670_374_419e-8, max_relative = 1e-10);
+        assert_relative_eq!(sigma, 5.670_374_419e-8, max_relative = 1e-9);
     }
 }
