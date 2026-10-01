@@ -1921,6 +1921,42 @@ mod tests {
     }
 
     #[test]
+    fn test_add_seconds_and_seconds_since() {
+        let ts = Timescale::default();
+        let base = ts.tdb_jd(2_461_558.5);
+        let later = base.add_seconds(3_600.0);
+        approx::assert_abs_diff_eq!(later.seconds_since(&base), 3_600.0, epsilon = 1e-6);
+        let earlier = base.add_seconds(-90.0);
+        approx::assert_abs_diff_eq!(earlier.seconds_since(&base), -90.0, epsilon = 1e-6);
+        approx::assert_abs_diff_eq!(base.seconds_since(&earlier), 90.0, epsilon = 1e-6);
+        // A decade of offset keeps microsecond resolution in the fraction.
+        let decade = 10.0 * 365.25 * DAY_S + 0.000_001;
+        let far = base.add_seconds(decade);
+        approx::assert_abs_diff_eq!(far.seconds_since(&base), decade, epsilon = 1e-7);
+    }
+
+    #[test]
+    fn test_std_duration_ops() {
+        let ts = Timescale::default();
+        let base = ts.tt_jd(J2000, None);
+        let step = StdDuration::new(2 * 86_400 + 30, 250_000_000);
+        let later = &base + step;
+        approx::assert_abs_diff_eq!(
+            later.seconds_since(&base),
+            2.0 * 86_400.0 + 30.25,
+            epsilon = 1e-6
+        );
+        let back = later.clone() - step;
+        approx::assert_abs_diff_eq!(back.seconds_since(&base), 0.0, epsilon = 1e-6);
+        assert_eq!((base.clone() + step), later);
+        approx::assert_abs_diff_eq!(
+            (&base - StdDuration::from_secs(60)).seconds_since(&base),
+            -60.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
     fn test_time_math() {
         let ts = Timescale::default();
         let t1 = ts.tt_jd(J2000, None);

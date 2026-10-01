@@ -53,6 +53,18 @@ fn main() {
     println!("\nOne day after millennium: {}", later);
     println!("Difference: {:.6} days", later - millennium);
 
+    // Parse text, offset in seconds, and serialise losslessly
+    let epoch = ts.parse("2027-06-01T00:00:00Z").unwrap();
+    let jd = ts.parse("JD 2461557.5 TDB").unwrap();
+    let exposure = epoch.add_seconds(90.0);
+    println!("\nParsed epoch: {}", epoch);
+    println!(
+        "  epoch - 'JD 2461557.5 TDB' = {:.6} s",
+        epoch.seconds_since(&jd)
+    );
+    println!("  90 s exposure ends {}", exposure.utc_iso('T', 3).unwrap());
+    println!("  JSON: {}", serde_json::to_string(&epoch).unwrap());
+
     // Future time
     let future = ts.utc((2050, 1, 1, 0, 0, 0.0));
     println!("\nFuture date (2050-01-01): {}", future);
