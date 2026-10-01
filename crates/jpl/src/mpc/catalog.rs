@@ -502,6 +502,30 @@ mod tests {
     }
 
     #[test]
+    fn non_ascii_and_invalid_utf8_lines_never_panic() {
+        let check = mpcorb_artifact().unwrap().check;
+        let accented = "\u{e9}".repeat(100);
+        let mut bytes = format!("{accented}\n").into_bytes();
+        bytes.extend_from_slice(&[0xff, 0xfe, b'x', b'\n']);
+        bytes.extend_from_slice(&[0xc3; 200]);
+        bytes.push(b'\n');
+        // No record: a validation error, not a panic.
+        assert!(check.check(&bytes).is_err());
+        assert!(MpcorbCatalog::from_text(&String::from_utf8_lossy(&bytes)).is_empty());
+
+        // The same noise ahead of a record still validates and loads it.
+        bytes.extend_from_slice(format!("{CERES}\n").as_bytes());
+        assert!(check.check(&bytes).is_ok());
+        let catalog = MpcorbCatalog::from_text(&String::from_utf8_lossy(&bytes));
+        assert_eq!(catalog.len(), 1);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("MPCORB.DAT");
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(MpcorbCatalog::from_file(&path).unwrap().len(), 1);
+    }
+
+    #[test]
     fn offline_store_without_the_snapshot_fails_without_network() {
         let root = tempfile::tempdir().unwrap();
         let store = offline_store(root.path());
