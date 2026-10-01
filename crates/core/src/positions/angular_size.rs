@@ -40,7 +40,7 @@ use nalgebra::Vector3;
 
 use crate::constants::AU_KM;
 use crate::framelib::Frame;
-use crate::positions::Position;
+use crate::positions::{sky_basis, Position};
 use crate::time::Time;
 
 /// Relative spread of the two eigenvalues below which the projected outline
@@ -228,24 +228,6 @@ fn quadratic(w: &Vector3<f64>, z: &Vector3<f64>, radii_km: [f64; 3]) -> f64 {
     w.x * z.x / (radii_km[0] * radii_km[0])
         + w.y * z.y / (radii_km[1] * radii_km[1])
         + w.z * z.z / (radii_km[2] * radii_km[2])
-}
-
-/// The right-handed sky triad `(east, north, line_of_sight)` at a direction.
-///
-/// East is `ẑ × r̂`, the direction of increasing right ascension, and north
-/// completes the triad as `r̂ × east`. A target exactly at a celestial pole
-/// leaves east undefined; there the x axis stands in for the pole, so the
-/// triad is still orthonormal and the position angle is merely arbitrary, as
-/// it must be.
-fn sky_basis(position: &Vector3<f64>) -> (Vector3<f64>, Vector3<f64>, Vector3<f64>) {
-    let line_of_sight = position.normalize();
-    let mut east = Vector3::z().cross(&line_of_sight);
-    if east.norm() < 1e-12 {
-        east = Vector3::x().cross(&line_of_sight);
-    }
-    let east = east.normalize();
-    let north = line_of_sight.cross(&east);
-    (east, north, line_of_sight)
 }
 
 #[cfg(test)]
