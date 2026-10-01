@@ -40,6 +40,9 @@
 //! [`Timescale::default`], so UT1, delta-T and polar motion are
 //! recomputed from its tables.
 //!
+//! Deserialisation fails if any numeric component (`whole`, a fraction,
+//! or `jd_tdb`) is NaN or infinite.
+//!
 //! For hand-written input in human-readable formats, two shorter forms
 //! are also accepted:
 //!
@@ -88,14 +91,24 @@ impl Time {
             .unwrap_or(jd_tdb - self.whole)
     }
 
+    /// Rebuild a time from its serialised parts, rejecting any component
+    /// that is NaN or infinite.
     fn from_parts(
         whole: f64,
         tt_fraction: f64,
         tai_fraction: Option<f64>,
         tdb_fraction: Option<f64>,
         leap_second: bool,
-    ) -> Time {
-        Time {
+    ) -> Result<Time, String> {
+        require_finite("whole", whole)?;
+        require_finite("tt_fraction", tt_fraction)?;
+        if let Some(tai) = tai_fraction {
+            require_finite("tai_fraction", tai)?;
+        }
+        if let Some(tdb) = tdb_fraction {
+            require_finite("tdb_fraction", tdb)?;
+        }
+        Ok(Time {
             ts: Timescale::default(),
             whole,
             tt_fraction,
@@ -105,7 +118,15 @@ impl Time {
             delta_t: OnceLock::new(),
             shape: None,
             leap_second,
-        }
+        })
+    }
+}
+
+fn require_finite(field: &str, value: f64) -> Result<(), String> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(format!("`{field}` must be finite, got {value}"))
     }
 }
 
@@ -186,18 +207,21 @@ impl<'de> Visitor<'de> for TimeVisitor {
         }
 
         match (whole, tt_fraction) {
-            (Some(whole), Some(tt_fraction)) => Ok(Time::from_parts(
+            (Some(whole), Some(tt_fraction)) => Time::from_parts(
                 whole,
                 tt_fraction,
                 tai_fraction,
                 tdb_fraction,
                 leap_second.unwrap_or(false),
-            )),
+            )
+            .map_err(de::Error::custom),
             (Some(_), None) => Err(de::Error::missing_field("tt_fraction")),
             (None, Some(_)) => Err(de::Error::missing_field("whole")),
-            (None, None) => jd_tdb
-                .map(|jd| Timescale::default().tdb_jd(jd))
-                .ok_or_else(|| de::Error::missing_field("whole")),
+            (None, None) => {
+                let jd = jd_tdb.ok_or_else(|| de::Error::missing_field("whole"))?;
+                require_finite("jd_tdb", jd).map_err(de::Error::custom)?;
+                Ok(Timescale::default().tdb_jd(jd))
+            }
         }
     }
 }
@@ -208,13 +232,14 @@ impl<'de> Deserialize<'de> for Time {
             deserializer.deserialize_any(TimeVisitor)
         } else {
             let c = Compact::deserialize(deserializer)?;
-            Ok(Time::from_parts(
+            Time::from_parts(
                 c.whole,
                 c.tt_fraction,
                 c.tai_fraction,
                 Some(c.tdb_fraction),
                 c.leap_second,
-            ))
+            )
+            .map_err(de::Error::custom)
         }
     }
 }
@@ -342,6 +367,103 @@ mod tests {
             r#"{}"#,
         ] {
             assert!(serde_json::from_str::<Time>(json).is_err(), "{json}");
+        }
+    }
+
+    #[test]
+    fn non_finite_map_components_are_rejected() {
+        use serde_test::{assert_de_tokens_error, Token};
+        let cases: [(&[(&str, f64)], &str); 6] = [
+            (
+                &[("whole", f64::NAN), ("tt_fraction", 0.0)],
+                "`whole` must be finite, got NaN",
+            ),
+            (
+                &[("whole", 2_451_545.0), ("tt_fraction", f64::INFINITY)],
+                "`tt_fraction` must be finite, got inf",
+            ),
+            (
+                &[
+                    ("whole", 2_451_545.0),
+                    ("tt_fraction", 0.0),
+                    ("tai_fraction", f64::NAN),
+                ],
+                "`tai_fraction` must be finite, got NaN",
+            ),
+            (
+                &[
+                    ("whole", 2_451_545.0),
+                    ("tt_fraction", 0.0),
+                    ("tdb_fraction", f64::NEG_INFINITY),
+                ],
+                "`tdb_fraction` must be finite, got -inf",
+            ),
+            (
+                &[("jd_tdb", f64::INFINITY)],
+                "`jd_tdb` must be finite, got inf",
+            ),
+            (&[("jd_tdb", f64::NAN)], "`jd_tdb` must be finite, got NaN"),
+        ];
+        for (fields, message) in cases {
+            let mut tokens = vec![Token::Map {
+                len: Some(fields.len()),
+            }];
+            for (key, value) in fields {
+                tokens.push(Token::Str(key));
+                tokens.push(Token::F64(*value));
+            }
+            tokens.push(Token::MapEnd);
+            assert_de_tokens_error::<serde_test::Readable<Time>>(&tokens, message);
+        }
+    }
+
+    #[test]
+    fn non_finite_compact_components_are_rejected() {
+        use serde_test::{assert_de_tokens_error, Token};
+        let compact = |whole: f64, tt: f64, tai: Option<f64>, tdb: f64| {
+            let mut tokens = vec![
+                Token::Struct {
+                    name: "Time",
+                    len: 5,
+                },
+                Token::Str("whole"),
+                Token::F64(whole),
+                Token::Str("tt_fraction"),
+                Token::F64(tt),
+                Token::Str("tai_fraction"),
+            ];
+            match tai {
+                Some(v) => tokens.extend([Token::Some, Token::F64(v)]),
+                None => tokens.push(Token::None),
+            }
+            tokens.extend([
+                Token::Str("tdb_fraction"),
+                Token::F64(tdb),
+                Token::Str("leap_second"),
+                Token::Bool(false),
+                Token::StructEnd,
+            ]);
+            tokens
+        };
+        for (tokens, message) in [
+            (
+                compact(f64::INFINITY, 0.0, None, 0.0),
+                "`whole` must be finite, got inf",
+            ),
+            (
+                compact(2_451_545.0, f64::NAN, None, 0.0),
+                "`tt_fraction` must be finite, got NaN",
+            ),
+            (
+                compact(2_451_545.0, 0.0, Some(f64::NAN), 0.0),
+                "`tai_fraction` must be finite, got NaN",
+            ),
+            (
+                compact(2_451_545.0, 0.0, None, f64::INFINITY),
+                "`tdb_fraction` must be finite, got inf",
+            ),
+        ] {
+            assert_de_tokens_error::<serde_test::Compact<Time>>(&tokens, message);
         }
     }
 
