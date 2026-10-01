@@ -6,7 +6,10 @@
 //! [`Dr1Entry`] type, and embeds the DR1-specific CSV produced by the
 //! `hipparcos-gaia-match` binary in `starfield-tools`.
 //!
-//! End-user entry point: [`Dr1Catalog::augment_missing`](crate::gaia::Dr1Catalog::augment_missing).
+//! End-user entry points: [`Dr1Catalog::augment_missing`](crate::gaia::Dr1Catalog::augment_missing)
+//! for the whole sky, and
+//! [`Dr1Catalog::augment_missing_in_cone`](crate::gaia::Dr1Catalog::augment_missing_in_cone)
+//! to match a cone query.
 //!
 //! # DR1-specific notes
 //!

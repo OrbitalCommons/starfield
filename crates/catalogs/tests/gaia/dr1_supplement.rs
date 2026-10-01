@@ -5,7 +5,7 @@
 use starfield_catalogs::gaia::dr1::supplement::{
     decode_supplement_hip, is_supplement_source_id, parse_embedded_supplement, SUPPLEMENT_REF_EPOCH,
 };
-use starfield_catalogs::gaia::Dr1Catalog;
+use starfield_catalogs::gaia::{Cone, Dr1Catalog};
 use starfield_core::catalogs::StarCatalog;
 
 #[test]
@@ -63,4 +63,29 @@ fn every_inserted_entry_has_supplement_source_id_and_dr1_epoch() {
         hips_seen += 1;
     }
     assert_eq!(hips_seen, rows.len());
+}
+
+#[test]
+fn augment_missing_in_cone_matches_filtered_supplement() {
+    let cone = Cone::from_degrees(83.8, -1.2, 10.0);
+    let mag_limit = 9.0;
+    let rows = parse_embedded_supplement().unwrap();
+    let expected = rows
+        .iter()
+        .filter(|r| r.fitted_g_mag <= mag_limit && cone.contains_radec_deg(r.ra, r.dec))
+        .count();
+
+    let mut cat = Dr1Catalog::new();
+    let added = cat.augment_missing_in_cone(cone, mag_limit).unwrap();
+    assert_eq!(added, expected);
+    assert_eq!(cat.len(), added);
+    assert!(
+        added > 0,
+        "expected supplement stars in a 10 deg Orion cone"
+    );
+    assert!(added < rows.len());
+    for star in cat.stars() {
+        assert!(cone.contains_radec_deg(star.core.ra, star.core.dec));
+        assert!(star.core.phot_g_mean_mag <= mag_limit);
+    }
 }

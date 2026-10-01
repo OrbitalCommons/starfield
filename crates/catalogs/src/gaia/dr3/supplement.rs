@@ -6,7 +6,10 @@
 //! [`Dr3Entry`] type, and embeds the DR3-specific CSV produced by the
 //! `hipparcos-gaia-match` binary in `starfield-tools`.
 //!
-//! End-user entry point: [`Dr3Catalog::augment_missing`](crate::gaia::Dr3Catalog::augment_missing).
+//! End-user entry points: [`Dr3Catalog::augment_missing`](crate::gaia::Dr3Catalog::augment_missing)
+//! for the whole sky, and
+//! [`Dr3Catalog::augment_missing_in_cone`](crate::gaia::Dr3Catalog::augment_missing_in_cone)
+//! to match a cone query.
 
 use starfield_core::Result;
 
