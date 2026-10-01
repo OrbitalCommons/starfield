@@ -248,8 +248,14 @@ impl BrightGalaxyCatalog {
     /// flux-conserving renderer (`SersicSplat` and friends) uses.
     /// Smaller fractions → bigger extents → more galaxies returned.
     ///
-    /// Galaxies without a Sérsic profile (none today, but the trait
-    /// allows it) collapse to the centre-only test.
+    /// The extent comes from [`SersicProfile::radius_at_sb_fraction`].
+    /// Fractions at or above a galaxy's central surface brightness
+    /// (`exp(b_n)`) have no isophote, so that galaxy collapses to the
+    /// centre-only test. `sb_fraction = 0.0` means an untruncated
+    /// profile with infinite extent, so every galaxy matches. Negative
+    /// or NaN fractions have no meaningful isophote and also collapse to
+    /// the centre-only test, as do galaxies without a Sérsic profile
+    /// (none today, but the trait allows it).
     ///
     /// Cost is `O(N)` over the catalog — fine for the ~45-row
     /// supplement; callers with a million-row catalog should still
@@ -262,22 +268,14 @@ impl BrightGalaxyCatalog {
     }
 }
 
-/// Truncation radius (in arcsec, along the major axis) at which the
-/// Sérsic surface brightness drops to `frac · I_e`. Closed-form inverse
-/// of the Sérsic SB expression: `r = θ_eff · ((-ln frac) / b_n + 1)^n`.
-fn sersic_radius_at_fraction(profile: &SersicProfile, frac: f64) -> f64 {
-    let bn = profile.b_n();
-    let raw = -(frac.ln()) / bn + 1.0;
-    profile.theta_half_arcsec * raw.powf(profile.n)
-}
-
 /// Does the cone overlap the galaxy's Sérsic envelope (truncated at
 /// `sb_fraction`)? True when the angular distance from `cone.centre` to
 /// the galaxy centre is at most `cone.radius + galaxy_extent`.
 fn cone_overlaps_galaxy(cone: &Cone, g: &BrightGalaxy, sb_fraction: f64) -> bool {
     let extent_arcsec = g
         .sersic_profile()
-        .map(|p| sersic_radius_at_fraction(&p, sb_fraction))
+        .map(|p| p.radius_at_sb_fraction(sb_fraction))
+        .filter(|r| !r.is_nan())
         .unwrap_or(0.0);
     let extent_rad = (extent_arcsec / 3600.0).to_radians();
     let total_radius_rad = cone.radius_rad + extent_rad;

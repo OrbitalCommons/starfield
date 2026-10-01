@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use starfield_catalogs::bright_galaxies::BrightGalaxyCatalog;
+use starfield_catalogs::bright_galaxies::{BrightGalaxy, BrightGalaxyCatalog};
 use starfield_catalogs::gaia::Cone;
 
 #[test]
@@ -182,6 +182,83 @@ fn extended_cone_smaller_fraction_returns_at_least_as_many() {
         loose.len(),
         tight.len()
     );
+}
+
+/// One synthetic galaxy at `(ra, dec) = (100°, 0°)` with a 600″
+/// effective radius and the given Sérsic index.
+fn single_galaxy_catalog(n: f32) -> BrightGalaxyCatalog {
+    let mut cat = BrightGalaxyCatalog::new();
+    cat.insert(BrightGalaxy {
+        name: "SYNTH".to_string(),
+        ra_deg: 100.0,
+        dec_deg: 0.0,
+        morph_type: "E0".to_string(),
+        mag_v: 8.0,
+        radius_sersic_arcsec: 600.0,
+        n_sersic: n,
+        ellipticity_sersic: 0.0,
+        pa_sersic_deg: 0.0,
+        notes: String::new(),
+    });
+    cat
+}
+
+fn matches(cat: &BrightGalaxyCatalog, cone: &Cone, sb_fraction: f64) -> bool {
+    cat.in_cone_extended(cone, sb_fraction)
+        .iter()
+        .any(|g| g.name == "SYNTH")
+}
+
+#[test]
+fn extended_cone_fraction_above_central_brightness_is_centre_only_for_even_n() {
+    // exp(b_2) ≈ 39 and exp(b_4) ≈ 2140, so sb_fraction = 1e12 lies
+    // above the central brightness of both profiles and has no
+    // isophote. Raising the negative inverse base to an even power
+    // would give a spurious multi-degree extent; the query must instead
+    // fall back to the centre-only test.
+    for n in [2.0_f32, 4.0] {
+        let cat = single_galaxy_catalog(n);
+        let on_centre = Cone::from_degrees(100.0, 0.0, 0.01);
+        let one_deg_off = Cone::from_degrees(101.0, 0.0, 0.01);
+
+        assert!(
+            matches(&cat, &one_deg_off, 1e-3),
+            "n = {n}: the 1e-3 envelope should reach a cone 1° off-centre"
+        );
+        assert!(
+            matches(&cat, &on_centre, 1e12),
+            "n = {n}: a cone on the centre must still match"
+        );
+        assert!(
+            !matches(&cat, &one_deg_off, 1e12),
+            "n = {n}: a fraction above central brightness must not add extent"
+        );
+    }
+}
+
+#[test]
+fn extended_cone_zero_fraction_matches_everywhere() {
+    // sb_fraction = 0 is an untruncated profile with infinite extent.
+    let cat = single_galaxy_catalog(2.0);
+    let antipode = Cone::from_degrees(280.0, 0.0, 0.01);
+    assert!(matches(&cat, &antipode, 0.0));
+}
+
+#[test]
+fn extended_cone_negative_or_nan_fraction_is_centre_only() {
+    let cat = single_galaxy_catalog(4.0);
+    let on_centre = Cone::from_degrees(100.0, 0.0, 0.01);
+    let one_deg_off = Cone::from_degrees(101.0, 0.0, 0.01);
+    for frac in [-1.0, -1e-3, f64::NAN] {
+        assert!(
+            matches(&cat, &on_centre, frac),
+            "sb_fraction = {frac}: a cone on the centre must still match"
+        );
+        assert!(
+            !matches(&cat, &one_deg_off, frac),
+            "sb_fraction = {frac}: an invalid fraction must not add extent"
+        );
+    }
 }
 
 #[test]
