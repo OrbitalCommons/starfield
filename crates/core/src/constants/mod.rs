@@ -35,8 +35,17 @@ pub const RAD2DEG: f64 = 180.0 / PI;
 pub const TAU: f64 = 2.0 * PI;
 
 // Physics
-/// Speed of light in m/s
+//
+// `C`, `PLANCK_CONSTANT` and `BOLTZMANN_CONSTANT` are defining constants of
+// the SI as revised in 2019 (26th CGPM, Resolution 1; SI Brochure, 9th
+// edition), so their values are exact by definition and identical in
+// CODATA 2018 and later adjustments.
+/// Speed of light in vacuum in m/s (exact, SI defining constant)
 pub const C: f64 = 299_792_458.0;
+/// Planck constant h in J s (exact, SI defining constant)
+pub const PLANCK_CONSTANT: f64 = 6.626_070_15e-34;
+/// Boltzmann constant k_B in J/K (exact, SI defining constant)
+pub const BOLTZMANN_CONSTANT: f64 = 1.380_649e-23;
 /// Heliocentric gravitational constant in m^3/s^2
 pub const GS: f64 = 1.327_124_400_179_87e+20;
 /// Solar GM in km^3/s^2 (Pitjeva 2005)
@@ -92,3 +101,35 @@ pub const GM_KM3_S2_TO_AU3_D2: f64 = DAY_S * DAY_S / (AU_KM * AU_KM * AU_KM);
 pub const GREGORIAN_START: i32 = 2_299_161;
 /// First day of Gregorian calendar in England (1752-09-14)
 pub const GREGORIAN_START_ENGLAND: i32 = 2_361_222;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn radiation_constants_match_codata_2018() {
+        // First radiation constant c1 = 2 pi h c^2 and second radiation
+        // constant c2 = h c / k_B, as tabulated (to 10 significant figures)
+        // in CODATA 2018.
+        assert_relative_eq!(
+            2.0 * PI * PLANCK_CONSTANT * C * C,
+            3.741_771_852e-16,
+            max_relative = 1e-10
+        );
+        assert_relative_eq!(
+            PLANCK_CONSTANT * C / BOLTZMANN_CONSTANT,
+            1.438_776_877e-2,
+            max_relative = 1e-10
+        );
+    }
+
+    #[test]
+    fn stefan_boltzmann_constant_follows_from_h_c_and_k() {
+        // sigma = 2 pi^5 k^4 / (15 h^3 c^2); CODATA 2018 gives
+        // 5.670 374 419e-8 W m^-2 K^-4.
+        let sigma = 2.0 * PI.powi(5) * BOLTZMANN_CONSTANT.powi(4)
+            / (15.0 * PLANCK_CONSTANT.powi(3) * C * C);
+        assert_relative_eq!(sigma, 5.670_374_419e-8, max_relative = 1e-10);
+    }
+}
