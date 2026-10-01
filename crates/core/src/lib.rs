@@ -210,6 +210,45 @@ impl Loader {
         Ok(jplephem::SpiceKernel::open_many(&paths)?)
     }
 
+    /// Open a planetary SPK merged with the default satellite kernel of
+    /// each listed planetary system.
+    ///
+    /// `systems` are system barycentre NAIF IDs, `4` (Mars) through `9`
+    /// (Pluto); each maps to a kernel through
+    /// [`jplephem::default_satellite_kernel`]. The planetary kernel loads
+    /// first and the satellite kernels follow in the order given, as with
+    /// [`Self::open_many`]. Fails before resolving any file if a system has
+    /// no default satellite kernel.
+    ///
+    /// ```no_run
+    /// use starfield_core::jplephem::names::targets;
+    ///
+    /// let loader = starfield_core::Loader::new();
+    /// let kernel = loader.open_with_satellites(
+    ///     "de440s.bsp",
+    ///     &[targets::JUPITER_BARYCENTER, targets::SATURN_BARYCENTER],
+    /// )?;
+    /// # Ok::<(), starfield_core::StarfieldError>(())
+    /// ```
+    pub fn open_with_satellites(
+        &self,
+        planetary: &str,
+        systems: &[i32],
+    ) -> Result<jplephem::SpiceKernel> {
+        let mut filenames = Vec::with_capacity(systems.len() + 1);
+        filenames.push(planetary);
+        for &system in systems {
+            let name = jplephem::default_satellite_kernel(system).ok_or_else(|| {
+                StarfieldError::DataError(format!(
+                    "no default satellite kernel for NAIF ID {system}; \
+                     expected a planetary system barycentre 4-9"
+                ))
+            })?;
+            filenames.push(name);
+        }
+        self.open_many(&filenames)
+    }
+
     /// Open a BSP file and return an Ephemeris, downloading if necessary.
     ///
     /// # Example
@@ -361,6 +400,22 @@ mod tests {
             !orion_belt_stars.is_empty(),
             "No stars found in Orion's belt region"
         );
+    }
+
+    #[test]
+    fn open_with_satellites_rejects_systems_without_a_default_kernel() {
+        let dir = tempfile::tempdir().unwrap();
+        let loader = Loader::new().with_data_dir(dir.path());
+        for system in [3, 499, 10] {
+            let Err(err) = loader.open_with_satellites("de440s.bsp", &[5, system]) else {
+                panic!("system {system} opened");
+            };
+            assert!(
+                matches!(&err, StarfieldError::DataError(msg) if msg.contains(&format!("NAIF ID {system};"))),
+                "unexpected error for {system}: {err}"
+            );
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[test]
