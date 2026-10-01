@@ -372,11 +372,98 @@ fn to_spherical(xyz: &Vector3<f64>) -> (f64, f64, f64) {
     (r, dec, ra)
 }
 
+/// How close to a celestial pole, as the sine of the angle from it, a line of
+/// sight may come before east on the sky is treated as undefined.
+const SKY_POLE_TOLERANCE: f64 = 1e-12;
+
+/// The right-handed sky triad `(east, north, line_of_sight)` at a direction,
+/// all three unit vectors in the frame of `line_of_sight` (in practice the
+/// ICRF).
+///
+/// East is `ẑ × r̂`, the direction of increasing right ascension, and north
+/// completes the triad as `r̂ × east`, pointing toward the celestial north
+/// pole along the sky. The triad is right-handed because its third axis points
+/// away from the observer: `east × north = line_of_sight`. Swapping that axis
+/// for one pointing back at the observer, as a picture of the sky does, gives
+/// a left-handed triad. Only the direction of `line_of_sight` matters, not its
+/// length. A target exactly at a celestial pole leaves east undefined; there
+/// the x axis stands in for the pole, so the triad is still orthonormal and
+/// any position angle measured in it is merely arbitrary, as it must be.
+pub fn sky_basis(line_of_sight: &Vector3<f64>) -> (Vector3<f64>, Vector3<f64>, Vector3<f64>) {
+    let line_of_sight = line_of_sight.normalize();
+    let mut east = Vector3::z().cross(&line_of_sight);
+    if east.norm() < SKY_POLE_TOLERANCE {
+        east = Vector3::x().cross(&line_of_sight);
+    }
+    let east = east.normalize();
+    let north = line_of_sight.cross(&east);
+    (east, north, line_of_sight)
+}
+
+/// The position angle of `direction` as seen along `line_of_sight`, radians
+/// east of celestial north in `[0, 2π)`.
+///
+/// This is `atan2(v·ê, v·n̂)` in the sky frame of [`sky_basis`]. Only the
+/// component of `direction` in the plane of the sky matters; its length does
+/// not. The angle is undefined, and returns zero, when the line of sight lies
+/// at a celestial pole, where the sky has no north; it is ill-conditioned
+/// when `direction` lies nearly along the line of sight.
+pub fn position_angle(line_of_sight: &Vector3<f64>, direction: &Vector3<f64>) -> f64 {
+    let (east, north, u) = sky_basis(line_of_sight);
+    if Vector3::z().cross(&u).norm() < SKY_POLE_TOLERANCE {
+        return 0.0;
+    }
+
+    let angle = direction.dot(&east).atan2(direction.dot(&north));
+    if angle < 0.0 {
+        angle + std::f64::consts::TAU
+    } else {
+        angle
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::jplephem_ext::SpiceKernelExt;
     use approx::assert_relative_eq;
+
+    #[test]
+    fn test_sky_basis_is_a_right_handed_orthonormal_triad() {
+        for direction in [
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.3, -0.7, 0.2),
+            Vector3::new(-4.0, 1.5, -2.5),
+            Vector3::z(),
+            -Vector3::z() * 3.0,
+        ] {
+            let (east, north, line_of_sight) = sky_basis(&direction);
+            assert_relative_eq!(line_of_sight, direction.normalize(), epsilon = 1e-15);
+            assert_relative_eq!(east.norm(), 1.0, epsilon = 1e-15);
+            assert_relative_eq!(north.norm(), 1.0, epsilon = 1e-15);
+            assert_relative_eq!(east.dot(&north), 0.0, epsilon = 1e-15);
+            assert_relative_eq!(east.dot(&line_of_sight), 0.0, epsilon = 1e-15);
+            assert_relative_eq!(east.cross(&north), line_of_sight, epsilon = 1e-15);
+        }
+    }
+
+    #[test]
+    fn test_sky_basis_points_east_and_north() {
+        // Looking along +x (RA 0, Dec 0), increasing RA is +y and north is +z.
+        let (east, north, _) = sky_basis(&Vector3::new(2.0, 0.0, 0.0));
+        assert_relative_eq!(east, Vector3::y(), epsilon = 1e-15);
+        assert_relative_eq!(north, Vector3::z(), epsilon = 1e-15);
+
+        // Away from the equator north still has a positive z component.
+        let (_, north, _) = sky_basis(&Vector3::new(0.3, -0.7, 0.2));
+        assert!(north.z > 0.0);
+    }
+
+    #[test]
+    fn test_position_angle_at_the_pole_is_zero() {
+        assert_eq!(position_angle(&Vector3::z(), &Vector3::x()), 0.0);
+        assert_eq!(position_angle(&-Vector3::z(), &Vector3::y()), 0.0);
+    }
 
     #[test]
     fn test_barycentric_creation() {

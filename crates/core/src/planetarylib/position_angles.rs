@@ -45,12 +45,11 @@
 //! );
 //! ```
 
-use nalgebra::Vector3;
-
 use crate::framelib::Frame;
 use crate::jplephem::kernel::SpiceKernel;
 use crate::planetarylib::subpoint::sun_seen_from_target;
-use crate::positions::Position;
+use crate::positions::illumination::IlluminationGeometry;
+use crate::positions::{position_angle, Position};
 use crate::time::Time;
 use crate::Result;
 
@@ -91,30 +90,8 @@ impl Position {
     /// [`StarfieldError::EphemerisError`](crate::StarfieldError::EphemerisError)
     /// if the kernel cannot place the Sun.
     pub fn bright_limb_position_angle(&self, kernel: &mut SpiceKernel, t: &Time) -> Result<f64> {
-        let body_to_sun = sun_seen_from_target(self, kernel, t)?;
-        Ok(position_angle(&self.position, &body_to_sun))
-    }
-}
-
-/// The position angle of `direction` as seen along `line_of_sight`, radians
-/// east of celestial north in `[0, 2π)`.
-///
-/// The sky frame at the end of the line of sight has north
-/// `n̂ ∝ ẑ − (ẑ·û)û` and east `ê ∝ ẑ × û`, so the angle is
-/// `atan2(v·ê, v·n̂)`. Only the component of `direction` in the plane of the
-/// sky matters; its length does not.
-fn position_angle(line_of_sight: &Vector3<f64>, direction: &Vector3<f64>) -> f64 {
-    let u = line_of_sight.normalize();
-    let z = Vector3::z();
-
-    let east = z.cross(&u);
-    let north = z - u * z.dot(&u);
-
-    let angle = direction.dot(&east).atan2(direction.dot(&north));
-    if angle < 0.0 {
-        angle + std::f64::consts::TAU
-    } else {
-        angle
+        let sun_from_target = sun_seen_from_target(self, kernel, t)?;
+        Ok(IlluminationGeometry::new(self.position, sun_from_target).bright_limb_position_angle())
     }
 }
 
@@ -128,6 +105,7 @@ mod tests {
     use crate::planetlib::Body;
     use crate::time::Timescale;
     use approx::assert_relative_eq;
+    use nalgebra::Vector3;
     use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
     fn de421_kernel() -> SpiceKernel {
