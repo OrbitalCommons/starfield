@@ -1,6 +1,7 @@
 //! Observe Io from Mars through a combined set of local SPK files.
 //!
-//! First obtain the kernels through `Loader::open_many` or the datastore.
+//! First obtain the kernels through `Loader::open_many`, `Loader::open_with_satellites`
+//! (which picks each system's default satellite kernel) or the datastore.
 //! Run: `cargo run --example observe_satellite -- de440s.bsp mar099.bsp jup365.bsp`
 //! The paths are local; this example does not download the large satellite files.
 
