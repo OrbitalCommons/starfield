@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.1
+
+- Add `MpcorbCatalog` for MPCORB lookup, screening, and precomputed orbits,
+  using the existing MPC parser and datastore download policy. Add the facade
+  `mpc-parallel` feature and safe handling of malformed catalog text.
+- Add attitude/pointing conversions, minimum enclosing spherical caps, and
+  gnomonic projection with a MAST WCS inverse and explicit horizon handling.
+- Add kernel-free illumination geometry, a public sky basis, default satellite
+  kernel selection, and exact SI Planck and Boltzmann constants.
+- Add text parsing, elapsed SI seconds, duration arithmetic, and serde support
+  for `Time`; recompute derived caches after shifts, validate leap seconds,
+  preserve split-date precision, and reject non-finite serialized components.
+- Add cone-limited Gaia bright-star supplements and restore extended
+  bright-galaxy cone queries using the shared Sersic surface-brightness radius.
+
 ## 0.18.0
 
 - Consolidate 19 workspace packages into six: `starfield`, `starfield-core`,

@@ -9,10 +9,10 @@ readme = "README.md"
 include = ["src/**", "examples/**", "tests/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
-starfield-catalogs = { version = "=0.18.0", path = "../catalogs", optional = true, default-features = false }
-starfield-jpl = { version = "=0.18.0", path = "../jpl", optional = true, default-features = false }
-starfield-surfaces = { version = "=0.18.0", path = "../surfaces", optional = true, default-features = false }
-starfield-core = { version = "=0.18.0", path = "../core", default-features = false }
+starfield-catalogs = { version = "=0.18.1", path = "../catalogs", optional = true, default-features = false }
+starfield-jpl = { version = "=0.18.1", path = "../jpl", optional = true, default-features = false }
+starfield-surfaces = { version = "=0.18.1", path = "../surfaces", optional = true, default-features = false }
+starfield-core = { version = "=0.18.1", path = "../core", default-features = false }
 
 [features]
 default = ["datastore"]
