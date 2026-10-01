@@ -230,10 +230,11 @@ impl SersicProfile {
     /// The Sérsic profile has infinite support, so any renderer or
     /// cone query must pick an isophote at which to truncate it. This
     /// gives the extent of that isophote: `sb_fraction = 1.0` returns
-    /// `theta_half_arcsec`, and smaller fractions return larger radii
-    /// (`1e-3` is roughly the visibility floor of an asinh-stretched
-    /// preview; `1e-4` leaves a truncation remainder well below the
-    /// per-pixel noise of a flux-conserving render).
+    /// `theta_half_arcsec`, and smaller fractions return larger radii.
+    /// The cutoff is the caller's choice: `1e-3` and `1e-4` are typical
+    /// values, with smaller fractions trading a larger footprint for
+    /// less truncated flux. Whether the truncated remainder is negligible
+    /// depends on the source flux, exposure and noise of the consumer.
     ///
     /// `sb_fraction` must be positive. Fractions at or above the central
     /// surface brightness, `exp(b_n)`, have no isophote and return `0.0`;
