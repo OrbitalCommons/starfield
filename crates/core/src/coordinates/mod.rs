@@ -1,4 +1,7 @@
 pub mod cartesian;
+pub mod gnomonic;
+
+pub use gnomonic::GnomonicProjection;
 
 // Re-export the Equatorial coordinate system + ProperMotion companion from framelib
 pub use crate::framelib::inertial::{Equatorial, ProperMotion};

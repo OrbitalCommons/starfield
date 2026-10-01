@@ -2,6 +2,7 @@
 //! parse it through `Wcs::read_from_cards`, and check pixel↔world,
 //! footprint, and plate-scale math.
 
+use approx::assert_abs_diff_eq;
 use fitsio_pure::header::Card;
 use fitsio_pure::value::Value;
 use starfield_catalogs::mast::Wcs;
@@ -227,6 +228,60 @@ fn non_tan_projection_errors_at_pixel_to_world() {
     assert!(!wcs.is_tan());
     let err = wcs
         .pixel_to_world(50.5, 50.5)
+        .expect_err("non-TAN should error");
+    assert!(err.to_string().contains("TAN"));
+}
+
+/// Rotated, east-left (CD1_1 < 0) TAN WCS centred near the north pole.
+fn rotated_tan_test_cards() -> Vec<Card> {
+    let scale = 0.5 / 3600.0;
+    let (sin_t, cos_t) = 25.0_f64.to_radians().sin_cos();
+    vec![
+        float_card("CRVAL1", 47.0),
+        float_card("CRVAL2", 86.0),
+        float_card("CRPIX1", 1024.5),
+        float_card("CRPIX2", 512.5),
+        float_card("CD1_1", -scale * cos_t),
+        float_card("CD1_2", scale * sin_t),
+        float_card("CD2_1", scale * sin_t),
+        float_card("CD2_2", scale * cos_t),
+        string_card("CTYPE1", "RA---TAN"),
+        string_card("CTYPE2", "DEC--TAN"),
+        int_card("NAXIS1", 2048),
+        int_card("NAXIS2", 1024),
+    ]
+}
+
+#[test]
+fn world_to_pixel_inverts_pixel_to_world() {
+    let wcs = Wcs::read_from_cards(&rotated_tan_test_cards()).unwrap();
+    for &(x, y) in &[(1024.5, 512.5), (1.0, 1.0), (2048.0, 1.0), (300.25, 900.75)] {
+        let (ra, dec) = wcs.pixel_to_world(x, y).unwrap();
+        let (x2, y2) = wcs.world_to_pixel(ra, dec).unwrap();
+        assert_abs_diff_eq!(x2, x, epsilon = 1e-6);
+        assert_abs_diff_eq!(y2, y, epsilon = 1e-6);
+    }
+}
+
+#[test]
+fn world_to_pixel_reference_point_is_crpix() {
+    let wcs = Wcs::read_from_cards(&tan_test_cards()).unwrap();
+    let (x, y) = wcs.world_to_pixel(180.0, 0.0).unwrap();
+    assert_abs_diff_eq!(x, 50.5, epsilon = 1e-9);
+    assert_abs_diff_eq!(y, 50.5, epsilon = 1e-9);
+}
+
+#[test]
+fn world_to_pixel_rejects_far_hemisphere_and_non_tan() {
+    let wcs = Wcs::read_from_cards(&tan_test_cards()).unwrap();
+    assert!(wcs.world_to_pixel(0.0, 0.0).is_err());
+
+    let mut cards = tan_test_cards();
+    cards.retain(|c| c.keyword_str() != "CTYPE1");
+    cards.push(string_card("CTYPE1", "RA---SIN"));
+    let wcs = Wcs::read_from_cards(&cards).unwrap();
+    let err = wcs
+        .world_to_pixel(180.0, 0.0)
         .expect_err("non-TAN should error");
     assert!(err.to_string().contains("TAN"));
 }

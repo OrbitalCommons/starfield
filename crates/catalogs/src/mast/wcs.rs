@@ -25,7 +25,8 @@ use std::path::Path;
 use fitsio_pure::hdu::{parse_fits, HduInfo};
 use fitsio_pure::header::Card;
 use fitsio_pure::value::Value;
-use starfield_core::{Result, StarfieldError};
+use starfield_core::coordinates::GnomonicProjection;
+use starfield_core::{Equatorial, Result, StarfieldError};
 
 /// Linear FITS WCS, populated from a FITS header.
 ///
@@ -117,40 +118,64 @@ impl Wcs {
     ///
     /// Errors out for non-TAN projections.
     pub fn pixel_to_world(&self, x: f64, y: f64) -> Result<(f64, f64)> {
-        if !self.is_tan() {
-            return Err(StarfieldError::DataError(format!(
-                "pixel_to_world: only TAN projection supported, got CTYPE1={:?} / CTYPE2={:?}",
-                self.ctype1, self.ctype2
-            )));
-        }
+        self.require_tan("pixel_to_world")?;
         let dx = x - self.crpix1;
         let dy = y - self.crpix2;
-        // Standard / native (xi, eta), in degrees, then converted to
-        // radians for the inverse-gnomonic formulae below.
+        // Intermediate world coordinates (xi, eta) in degrees.
         let xi_deg = self.cd[0][0] * dx + self.cd[0][1] * dy;
         let eta_deg = self.cd[1][0] * dx + self.cd[1][1] * dy;
-        let xi = xi_deg.to_radians();
-        let eta = eta_deg.to_radians();
+        let sky = self
+            .projection()
+            .deproject(xi_deg.to_radians(), eta_deg.to_radians());
+        Ok((sky.ra.to_degrees().rem_euclid(360.0), sky.dec.to_degrees()))
+    }
 
-        let alpha0 = self.crval1.to_radians();
-        let delta0 = self.crval2.to_radians();
-
-        let rho = (xi * xi + eta * eta).sqrt();
-        if rho == 0.0 {
-            return Ok((self.crval1, self.crval2));
+    /// Convert world coordinates `(ra_deg, dec_deg)` to FITS-style
+    /// 1-indexed pixel coordinates `(x, y)`; the inverse of
+    /// [`Self::pixel_to_world`].
+    ///
+    /// Errors out for non-TAN projections, for a target 90 degrees or
+    /// more from the reference point (no tangent-plane image), and for
+    /// a singular CD matrix.
+    pub fn world_to_pixel(&self, ra_deg: f64, dec_deg: f64) -> Result<(f64, f64)> {
+        self.require_tan("world_to_pixel")?;
+        let (xi, eta) = self
+            .projection()
+            .project(&Equatorial::from_degrees(ra_deg, dec_deg))
+            .ok_or_else(|| {
+                StarfieldError::DataError(format!(
+                    "world_to_pixel: ({ra_deg}, {dec_deg}) is 90 degrees or more from CRVAL"
+                ))
+            })?;
+        let (xi_deg, eta_deg) = (xi.to_degrees(), eta.to_degrees());
+        let [[a, b], [c, d]] = self.cd;
+        let det = a * d - b * c;
+        if det == 0.0 {
+            return Err(StarfieldError::DataError(
+                "world_to_pixel: CD matrix is singular".into(),
+            ));
         }
-        let c = rho.atan();
-        let sin_c = c.sin();
-        let cos_c = c.cos();
-        let sin_d0 = delta0.sin();
-        let cos_d0 = delta0.cos();
+        let dx = (d * xi_deg - b * eta_deg) / det;
+        let dy = (a * eta_deg - c * xi_deg) / det;
+        Ok((dx + self.crpix1, dy + self.crpix2))
+    }
 
-        let delta = (cos_c * sin_d0 + (eta * sin_c * cos_d0) / rho).asin();
-        let alpha = alpha0 + (xi * sin_c).atan2(rho * cos_d0 * cos_c - eta * sin_d0 * sin_c);
-        // Wrap RA into [0, 360).
-        let mut ra_deg = alpha.to_degrees();
-        ra_deg = ra_deg.rem_euclid(360.0);
-        Ok((ra_deg, delta.to_degrees()))
+    /// The tangent-plane projection about the reference point
+    /// (CRVAL1, CRVAL2), in standard coordinates (`+xi` east, `+eta`
+    /// north, the FITS `TAN` default `LONPOLE = 180°`).
+    pub fn projection(&self) -> GnomonicProjection {
+        GnomonicProjection::new(Equatorial::from_degrees(self.crval1, self.crval2))
+    }
+
+    fn require_tan(&self, op: &str) -> Result<()> {
+        if self.is_tan() {
+            Ok(())
+        } else {
+            Err(StarfieldError::DataError(format!(
+                "{op}: only TAN projection supported, got CTYPE1={:?} / CTYPE2={:?}",
+                self.ctype1, self.ctype2
+            )))
+        }
     }
 
     /// Returns the four image corners in world coordinates `(ra_deg,
