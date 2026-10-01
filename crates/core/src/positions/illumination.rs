@@ -179,9 +179,12 @@ impl IlluminationGeometry {
     /// as `(east, north, toward the observer)` components of a unit vector.
     ///
     /// East and north are those of [`sky_basis`] along the line of sight, and
-    /// the third axis points back at the observer, which makes the triad
-    /// right-handed with the observer looking down its third axis: the frame
-    /// in which a disc is drawn on the sky.
+    /// the third axis points back at the observer: the frame in which a disc
+    /// is drawn on the sky, with north up and east to the left as the observer
+    /// sees it. Because `east × north` points along the line of sight, away
+    /// from the observer, this `(east, north, toward the observer)` triad is
+    /// left-handed. The z component is the cosine of the phase angle, and
+    /// `atan2(x, y)` is the bright limb's position angle.
     pub fn sun_direction_sky_frame(&self) -> Vector3<f64> {
         let (east, north, line_of_sight) = sky_basis(&self.target_from_observer);
         let sun = self.sun_direction();
@@ -272,6 +275,7 @@ mod tests {
     use super::*;
     use crate::time::Timescale;
     use approx::assert_relative_eq;
+    use nalgebra::Matrix3;
     use std::f64::consts::PI;
 
     fn de421_kernel() -> SpiceKernel {
@@ -403,6 +407,38 @@ mod tests {
             geometry.bright_limb_position_angle(),
             epsilon = 1e-14
         );
+    }
+
+    #[test]
+    fn test_sun_direction_sky_frame_is_a_left_handed_decomposition() {
+        let sun_from_target = Vector3::new(-0.2, 0.9, 1.1);
+        for line_of_sight in [
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.4, -1.3, 0.6),
+            Vector3::new(-4.0, 1.5, -2.5),
+            Vector3::new(1e-7, 0.0, 1.0),
+            Vector3::new(0.0, -1e-7, -1.0),
+            Vector3::z(),
+            -Vector3::z() * 3.0,
+        ] {
+            let (east, north, away) = sky_basis(&line_of_sight);
+            let toward_observer = -away;
+            let determinant = Matrix3::from_columns(&[east, north, toward_observer]).determinant();
+            assert_relative_eq!(determinant, -1.0, epsilon = 1e-14);
+            assert_relative_eq!(
+                east.cross(&north),
+                line_of_sight.normalize(),
+                epsilon = 1e-14
+            );
+
+            let geometry = IlluminationGeometry::new(line_of_sight, sun_from_target);
+            let sky = geometry.sun_direction_sky_frame();
+            assert_relative_eq!(
+                sky.x * east + sky.y * north + sky.z * toward_observer,
+                geometry.sun_direction(),
+                epsilon = 1e-14
+            );
+        }
     }
 
     #[test]

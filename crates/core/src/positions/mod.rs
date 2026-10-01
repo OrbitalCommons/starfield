@@ -382,7 +382,10 @@ const SKY_POLE_TOLERANCE: f64 = 1e-12;
 ///
 /// East is `ẑ × r̂`, the direction of increasing right ascension, and north
 /// completes the triad as `r̂ × east`, pointing toward the celestial north
-/// pole along the sky. Only the direction of `line_of_sight` matters, not its
+/// pole along the sky. The triad is right-handed because its third axis points
+/// away from the observer: `east × north = line_of_sight`. Swapping that axis
+/// for one pointing back at the observer, as a picture of the sky does, gives
+/// a left-handed triad. Only the direction of `line_of_sight` matters, not its
 /// length. A target exactly at a celestial pole leaves east undefined; there
 /// the x axis stands in for the pole, so the triad is still orthonormal and
 /// any position angle measured in it is merely arbitrary, as it must be.
