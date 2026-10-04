@@ -6,13 +6,13 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-#[cfg(not(feature = "datastore"))]
+#[cfg(all(not(feature = "datastore"), not(target_arch = "wasm32")))]
 use std::time::Duration;
 
 use crate::Result;
 use crate::StarfieldError;
 
-#[cfg(not(feature = "datastore"))]
+#[cfg(all(not(feature = "datastore"), not(target_arch = "wasm32")))]
 use indicatif::{ProgressBar, ProgressStyle};
 
 /// The Hipparcos main catalogue as served by CDS.
@@ -76,6 +76,7 @@ pub(crate) fn file_exists_and_not_empty<P: AsRef<Path>>(path: P) -> bool {
 
 /// Download a file from URL to a local path
 #[cfg(not(feature = "datastore"))]
+#[cfg(not(target_arch = "wasm32"))]
 fn download_file<P: AsRef<Path>>(url: &str, path: P) -> Result<()> {
     // Create parent directories if they don't exist
     if let Some(parent) = path.as_ref().parent() {
@@ -241,6 +242,7 @@ pub(crate) fn is_satellite_spk(filename: &str) -> bool {
 /// Uses a longer timeout (600s) suitable for large ephemeris files.
 /// Downloads to a temporary file first, then atomically renames.
 #[cfg(not(feature = "datastore"))]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_file_with_progress<P: AsRef<Path>>(url: &str, path: P) -> Result<()> {
     if let Some(parent) = path.as_ref().parent() {
         fs::create_dir_all(parent).map_err(StarfieldError::IoError)?;
@@ -590,4 +592,22 @@ mod tests {
             );
         }
     }
+}
+
+/// Return an unsupported-operation error: browser hosts must fetch bytes asynchronously.
+#[cfg(all(not(feature = "datastore"), target_arch = "wasm32"))]
+fn download_file<P: AsRef<Path>>(_url: &str, _path: P) -> Result<()> {
+    Err(StarfieldError::IoError(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Native downloads are unavailable on wasm32; fetch bytes in the host and use in-memory parsers",
+    )))
+}
+
+/// Return an unsupported-operation error: browser hosts must fetch bytes asynchronously.
+#[cfg(all(not(feature = "datastore"), target_arch = "wasm32"))]
+pub fn download_file_with_progress<P: AsRef<Path>>(_url: &str, _path: P) -> Result<()> {
+    Err(StarfieldError::IoError(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Native downloads are unavailable on wasm32; fetch bytes in the host and use in-memory parsers",
+    )))
 }

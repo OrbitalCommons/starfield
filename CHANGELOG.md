@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.2
+
+- Support browser WASM builds of the core and facade with default features disabled.
+  Native blocking downloads return an unsupported-operation error on wasm32;
+  callers supply downloaded bytes to the existing in-memory parsers.
+- Select the JavaScript entropy backend on wasm32, omit the core HTTP dependency
+  on that target, and check the portable build in CI. Native defaults are unchanged.
+
 ## 0.18.1
 
 - Add `MpcorbCatalog` for MPCORB lookup, screening, and precomputed orbits,

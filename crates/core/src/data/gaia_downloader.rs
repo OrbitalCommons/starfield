@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
-#[cfg(not(feature = "datastore"))]
+#[cfg(all(not(feature = "datastore"), not(target_arch = "wasm32")))]
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-#[cfg(not(feature = "datastore"))]
+#[cfg(all(not(feature = "datastore"), not(target_arch = "wasm32")))]
 use std::time::Duration;
 // No need for sync primitives yet
 
@@ -50,6 +50,7 @@ fn file_exists_and_not_empty<P: AsRef<Path>>(path: P) -> bool {
 
 /// Download a file from URL to a local path
 #[cfg(not(feature = "datastore"))]
+#[cfg(not(target_arch = "wasm32"))]
 fn download_file<P: AsRef<Path>>(url: &str, path: P) -> Result<()> {
     // Create parent directories if they don't exist
     if let Some(parent) = path.as_ref().parent() {
@@ -825,4 +826,13 @@ mod tests {
             .unwrap()
             .contains(".cache/starfield/gaia"));
     }
+}
+
+/// Return an unsupported-operation error: browser hosts must fetch bytes asynchronously.
+#[cfg(all(not(feature = "datastore"), target_arch = "wasm32"))]
+fn download_file<P: AsRef<Path>>(_url: &str, _path: P) -> Result<()> {
+    Err(StarfieldError::IoError(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Native downloads are unavailable on wasm32; fetch bytes in the host and use in-memory parsers",
+    )))
 }

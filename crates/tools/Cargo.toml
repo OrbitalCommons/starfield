@@ -15,7 +15,7 @@ name = "hipparcos-gaia-match"
 path = "src/bin/hipparcos_gaia_match.rs"
 
 [dependencies]
-starfield-catalogs = { version = "=0.18.1", path = "../catalogs", default-features = false, features = ["gaia", "all-releases", "hipparcos"] }
+starfield-catalogs = { version = "=0.18.2", path = "../catalogs", default-features = false, features = ["gaia", "all-releases", "hipparcos"] }
 starfield-core = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
