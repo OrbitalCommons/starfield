@@ -24,7 +24,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Network and compression
-reqwest = { version = "0.12", features = ["blocking", "json", "multipart"] }
 flate2 = "1.0"                                          # GZip compression
 rand = "0.9"                                            # Random number generation for synthetic data
 md5 = "0.7"                                             # MD5 checksum calculation
@@ -60,6 +59,13 @@ uom = "0.37.0"
 sgp4 = "2.3.0"
 tempfile = { version = "3.8", optional = true }
 
+
+# Browser consumers supply data as bytes instead of using the native downloader.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json", "multipart"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 criterion = "0.5" # Benchmarking

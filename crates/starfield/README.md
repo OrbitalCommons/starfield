@@ -16,3 +16,19 @@ See the [migration guide](https://github.com/OrbitalCommons/starfield/blob/main/
 Version 0.18 consolidates the datasource packages into `starfield-catalogs`,
 `starfield-jpl`, and `starfield-surfaces`, preserving the facade paths above.
 Old per-source package users should migrate to facade features.
+
+## Browser WebAssembly
+
+For `wasm32-unknown-unknown`, use the portable core without native data services:
+
+```toml
+starfield = { version = "0.18.2", default-features = false }
+```
+
+Coordinate and time calculations and in-memory parsers are available. For example,
+`starfield::jplephem::spk::SPK::from_bytes` accepts an ephemeris downloaded by the
+host. The JavaScript entropy backend is selected automatically for this target.
+The `datastore` default and network datasource features remain native-only;
+filesystem caches and memory-mapped file APIs are not browser storage APIs.
+Blocking download implementations return an unsupported-operation error on WASM.
+Fetch data asynchronously in the host and pass the bytes into Rust instead.
