@@ -1,9 +1,29 @@
 //! Delta-T (TT - UT1) computation using cubic spline interpolation
 //!
 //! Uses the Morrison, Stephenson, Hohenkerk, and Zawilski Table S15.2020
-//! cubic spline segments for years -720 to 2019, with the Stephenson-Morrison-
-//! Hohenkerk 2016 long-term parabola for dates outside that range.
-//! Transition splines provide smooth connections at the boundaries.
+//! cubic spline segments for years -720 to 2016, a bundled monthly IERS
+//! series for 2017 onward, and the Stephenson-Morrison-Hohenkerk 2016
+//! long-term parabola for dates outside that range. Transition splines
+//! provide smooth connections at the boundaries.
+//!
+//! # Currency
+//!
+//! Table S15.2020 ends at 2019, and the long-term parabola is a millennial
+//! fit: extrapolating it a few years past 2019 climbs at about 0.33 s/yr
+//! while the real delta-T has been flat to slightly falling, so by 2026 the
+//! error reaches 2.3 s (35 arcsec of Earth rotation). [`IERS_DELTA_T`]
+//! replaces that extrapolation with observation.
+//!
+//! **A bundled table is still a frozen clock.** Delta-T carries an annual
+//! term of 0.023 s amplitude plus an irregular component of comparable size,
+//! so freezing it at any date leaves a sub-arcsecond consumer (0.36 arcsec =
+//! 0.024 s) out of tolerance within a median of **four months** -- measured
+//! by re-running the freeze at 73 monthly cutoffs from 2020 to 2026, where
+//! 41% broke within three. The prediction tail buys no more: IERS Bulletin A
+//! predictions, compared against what was later observed, cross the same bar
+//! at about two and a half months of lead. Sub-arcsecond work needs a current
+//! UT1-UTC source, not a newer constant; see [`crate::time::Timescale`] for
+//! supplying one.
 
 /// Number of segments in Table S15.2020
 const N_SEGMENTS: usize = 58;
@@ -274,6 +294,71 @@ const S15_A0: [f64; N_SEGMENTS] = [
     6.8109000e+01,
 ];
 
+/// First year of the bundled IERS delta-T series
+const IERS_X0: f64 = 2017.0;
+
+/// Spacing of [`IERS_DELTA_T`] samples, in years
+const IERS_STEP: f64 = 1.0 / 12.0;
+
+/// Number of samples in [`IERS_DELTA_T`]
+const IERS_N: usize = 129;
+
+/// Samples of [`IERS_DELTA_T`] backed by IERS *observations*; the remainder
+/// are IERS Bulletin A *predictions* and inherit their uncertainty
+const IERS_OBSERVED_N: usize = 117;
+
+/// Year at which the S15 table hands over to the bundled IERS series
+const IERS_BLEND_X0: f64 = 2016.0;
+
+/// Monthly delta-T (TT - UT1), seconds, from IERS finals2000A.all
+///
+/// Sampled at `IERS_X0 + k * IERS_STEP` and evaluated by linear
+/// interpolation, which reproduces the daily series to within 0.006 s
+/// (0.095 arcsec) over the observed span. Samples `0..IERS_OBSERVED_N` are
+/// observed (through 2026-09-17); the rest are Bulletin A predictions
+/// through 2027-09-25.
+const IERS_DELTA_T: [f64; IERS_N] = [
+    68.5925, 68.6287, 68.6697, 68.7152, 68.7643, 68.8046, 68.8252, 68.8375, 68.8477, 68.8693,
+    68.9008, 68.9364, 68.9676, 68.9868, 69.0198, 69.0517, 69.0840, 69.1074, 69.1125, 69.1145,
+    69.1208, 69.1362, 69.1649, 69.1975, 69.2204, 69.2450, 69.2743, 69.3048, 69.3347, 69.3548,
+    69.3574, 69.3438, 69.3381, 69.3380, 69.3432, 69.3541, 69.3614, 69.3751, 69.3898, 69.4094,
+    69.4271, 69.4391, 69.4234, 69.3915, 69.3694, 69.3574, 69.3593, 69.3629, 69.3595, 69.3508,
+    69.3548, 69.3585, 69.3670, 69.3677, 69.3505, 69.3268, 69.3031, 69.2888, 69.2881, 69.2911,
+    69.2945, 69.2916, 69.2864, 69.2839, 69.2812, 69.2786, 69.2505, 69.2207, 69.1973, 69.1886,
+    69.1943, 69.2040, 69.2039, 69.1988, 69.1988, 69.2086, 69.2195, 69.2302, 69.2186, 69.1981,
+    69.1817, 69.1727, 69.1724, 69.1720, 69.1754, 69.1797, 69.1875, 69.1981, 69.2019, 69.2049,
+    69.1869, 69.1580, 69.1322, 69.1250, 69.1303, 69.1343, 69.1378, 69.1362, 69.1398, 69.1473,
+    69.1538, 69.1550, 69.1399, 69.1213, 69.0991, 69.0907, 69.0910, 69.1047, 69.1099, 69.1133,
+    69.1175, 69.1342, 69.1517, 69.1662, 69.1692, 69.1718, 69.1819, 69.2088, 69.2446, 69.2806,
+    69.3027, 69.3191, 69.3372, 69.3657, 69.3790, 69.3816, 69.3672, 69.3453, 69.3283,
+];
+
+/// Last year covered by the bundled IERS series
+fn iers_x1() -> f64 {
+    IERS_X0 + (IERS_N - 1) as f64 * IERS_STEP
+}
+
+/// Index of the sample interval containing `year`, clamped to the table
+fn iers_segment(year: f64) -> usize {
+    let raw = (year - IERS_X0) / IERS_STEP;
+    let i = if raw <= 0.0 { 0 } else { raw as usize };
+    i.min(IERS_N - 2)
+}
+
+/// Evaluate the bundled IERS series at a given year
+fn iers_eval(year: f64) -> f64 {
+    let i = iers_segment(year);
+    let x = IERS_X0 + i as f64 * IERS_STEP;
+    let t = (year - x) / IERS_STEP;
+    IERS_DELTA_T[i] + t * (IERS_DELTA_T[i + 1] - IERS_DELTA_T[i])
+}
+
+/// Evaluate the slope of the bundled IERS series at a given year
+fn iers_deriv(year: f64) -> f64 {
+    let i = iers_segment(year);
+    (IERS_DELTA_T[i + 1] - IERS_DELTA_T[i]) / IERS_STEP
+}
+
 /// Long-term parabola coefficients (Stephenson-Morrison-Hohenkerk 2016)
 ///
 /// Represents: delta_t = -320 + 32.5 * ((year - 1825) / 100)^2
@@ -386,8 +471,10 @@ fn s15_deriv(year: f64) -> f64 {
 /// Structure mirrors Skyfield's `build_delta_t()`:
 /// - Far left: pure long-term parabola (as single spline segment)
 /// - Left transition: cubic spline connecting parabola to S15
-/// - S15 region: Table S15.2020 splines
-/// - Right of S15: polynomial extrapolation matching Skyfield's delta_t_approx
+/// - S15 region: Table S15.2020 splines, up to `IERS_BLEND_X0`
+/// - Blend: cubic spline from the S15 table to the bundled IERS series
+/// - IERS region: bundled monthly delta-T, linearly interpolated
+/// - Right of the IERS series: transition spline back to the parabola
 /// - Far right: pure long-term parabola
 #[derive(Debug, Clone)]
 pub struct DeltaT {
@@ -395,7 +482,9 @@ pub struct DeltaT {
     left_transition: SplineSegment,
     /// Far left boundary (left of transition)
     far_left: SplineSegment,
-    /// Right transition spline: connects S15 end to parabola
+    /// Blend spline: connects the S15 table to the bundled IERS series
+    iers_blend: SplineSegment,
+    /// Right transition spline: connects the IERS series end to the parabola
     right_transition: SplineSegment,
     /// Far right boundary
     far_right: SplineSegment,
@@ -433,7 +522,6 @@ impl DeltaT {
     pub fn new() -> Self {
         // S15 boundaries
         let s15_left = S15_X0[0]; // -720.0
-        let s15_right = S15_X1[N_SEGMENTS - 1]; // 2019.0
 
         // Build left transition: parabola → S15
         let left_x1 = s15_left;
@@ -475,15 +563,38 @@ impl DeltaT {
             a0: fla0,
         };
 
-        // Build right transition: S15 → parabola
-        // Skyfield connects end of IERS daily data to parabola.
-        // Since we don't bundle IERS daily data, we connect end of S15 to parabola.
-        let right_x0 = s15_right;
+        // Build the blend: S15 → bundled IERS series.
+        // The two sources overlap (S15 runs to 2019, the IERS series starts at
+        // 2017), so the handover is a spline over [IERS_BLEND_X0, IERS_X0]
+        // rather than a join at a shared endpoint; S15's own value at 2019 is
+        // 0.020 s from the observed one, and blending hides no step.
+        let (ba3, ba2, ba1, ba0) = build_spline_given_ends(
+            IERS_BLEND_X0,
+            s15_eval(IERS_BLEND_X0),
+            s15_deriv(IERS_BLEND_X0),
+            IERS_X0,
+            iers_eval(IERS_X0),
+            iers_deriv(IERS_X0),
+        );
+        let iers_blend = SplineSegment {
+            x0: IERS_BLEND_X0,
+            x1: IERS_X0,
+            a3: ba3,
+            a2: ba2,
+            a1: ba1,
+            a0: ba0,
+        };
+
+        // Build right transition: bundled IERS series → parabola.
+        // Skyfield connects the end of its IERS daily data to the parabola;
+        // anchoring here rather than at s15_right (2019) is what keeps the
+        // parabola's 0.33 s/yr climb out of the present.
+        let right_x0 = iers_x1();
         let right_x1 = ((right_x0 + PATCH_WIDTH) / 100.0).floor() * 100.0;
         let (ra3, ra2, ra1, ra0) = build_spline_given_ends(
             right_x0,
-            s15_eval(right_x0),
-            s15_deriv(right_x0),
+            iers_eval(right_x0),
+            iers_deriv(right_x0),
             right_x1,
             parabola_eval(right_x1),
             parabola_deriv(right_x1),
@@ -520,9 +631,27 @@ impl DeltaT {
         DeltaT {
             left_transition,
             far_left,
+            iers_blend,
             right_transition,
             far_right,
         }
+    }
+
+    /// Year through which the bundled delta-T series is backed by IERS
+    /// *observations*
+    ///
+    /// Past this year the series carries IERS Bulletin A predictions, and past
+    /// [`DeltaT::table_end_year`] it extrapolates toward the long-term
+    /// parabola. Delta-T's annual term alone is 0.023 s, so a consumer holding
+    /// a sub-arcsecond bar (0.36 arcsec = 0.024 s) should treat epochs beyond
+    /// this year as needing a current UT1-UTC source.
+    pub fn observed_through_year(&self) -> f64 {
+        IERS_X0 + (IERS_OBSERVED_N - 1) as f64 * IERS_STEP
+    }
+
+    /// Last year covered by the bundled delta-T series
+    pub fn table_end_year(&self) -> f64 {
+        iers_x1()
     }
 
     /// Compute delta-T in seconds for a given TT Julian date
@@ -535,8 +664,18 @@ impl DeltaT {
     pub fn compute_for_year(&self, year: f64) -> f64 {
         // Check regions in order from center outward
 
-        // S15 table region: -720 to 2019
-        if (S15_X0[0]..=S15_X1[N_SEGMENTS - 1]).contains(&year) {
+        // Bundled IERS series: 2017 to the end of the table
+        if (IERS_X0..=iers_x1()).contains(&year) {
+            return iers_eval(year);
+        }
+
+        // Blend from the S15 table into the IERS series
+        if self.iers_blend.contains(year) {
+            return self.iers_blend.eval(year);
+        }
+
+        // S15 table region: -720 up to the blend
+        if (S15_X0[0]..IERS_BLEND_X0).contains(&year) {
             return s15_eval(year);
         }
 
@@ -668,6 +807,50 @@ mod tests {
         assert_relative_eq!(a2, 0.0, epsilon = 1e-10);
         assert_relative_eq!(a1, 1.0, epsilon = 1e-10);
         assert_relative_eq!(a0, 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_iers_series_matches_observation() {
+        let dt = DeltaT::new();
+        // IERS finals2000A.all, observed. The bar is 0.024 s = 0.36 arcsec of
+        // Earth rotation, the tolerance the sub-arcsecond consumers pin.
+        for (year, iers) in [
+            (2019.0, 69.2204),
+            (2021.0, 69.3594),
+            (2023.0, 69.2038),
+            (2025.0, 69.1377),
+            (2026.0, 69.1099),
+        ] {
+            let val = dt.compute_for_year(year);
+            assert!(
+                (val - iers).abs() < 0.024,
+                "delta_t({year}) = {val}, IERS {iers}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_iers_series_is_continuous_at_its_ends() {
+        let dt = DeltaT::new();
+        let eps = 1e-6;
+        for x in [IERS_BLEND_X0, IERS_X0, iers_x1()] {
+            let lo = dt.compute_for_year(x - eps);
+            let hi = dt.compute_for_year(x + eps);
+            assert!(
+                (hi - lo).abs() < 1e-4,
+                "step of {} s at year {x}",
+                (hi - lo).abs()
+            );
+        }
+    }
+
+    #[test]
+    fn test_currency_accessors_bracket_the_table() {
+        let dt = DeltaT::new();
+        assert!(dt.observed_through_year() > 2026.0);
+        assert!(dt.table_end_year() > dt.observed_through_year());
+        assert_eq!(IERS_DELTA_T.len(), IERS_N);
+        const { assert!(IERS_OBSERVED_N <= IERS_N) };
     }
 
     #[test]
