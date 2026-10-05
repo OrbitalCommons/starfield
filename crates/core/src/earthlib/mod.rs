@@ -7,6 +7,8 @@
 
 use crate::constants::J2000;
 
+pub mod analytic;
+
 #[cfg(feature = "python-tests")]
 mod python_tests;
 
