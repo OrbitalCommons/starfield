@@ -233,6 +233,63 @@ impl GeographicPosition {
     pub fn refract(altitude_degrees: f64, temperature_c: f64, pressure_mbar: f64) -> f64 {
         crate::earthlib::refraction(altitude_degrees, temperature_c, pressure_mbar)
     }
+
+    /// Approximate barycentric velocity of this observer, in AU/day, with no
+    /// SPICE kernel.
+    ///
+    /// The orbital term is the heliocentric two-body Earth–Moon barycentre
+    /// velocity from
+    /// [`emb_heliocentric_two_body_state`](crate::earthlib::analytic::emb_heliocentric_two_body_state),
+    /// standing in for Earth's barycentric velocity; it is within 30.5 m/s of
+    /// DE421 over 1990–2040, i.e. 0.021 arcsec of aberration. The diurnal term
+    /// is `omega x r` rotated into GCRS, exactly as in [`Self::at`].
+    pub fn approximate_barycentric_velocity(&self, time: &Time) -> Vector3<f64> {
+        let (_, earth_vel) = crate::earthlib::analytic::emb_heliocentric_two_body_state(time);
+        let angvel_au_day = EARTH_ANGVEL * DAY_S;
+        let itrs_vel = Vector3::new(
+            -angvel_au_day * self.itrs_xyz.y,
+            angvel_au_day * self.itrs_xyz.x,
+            0.0,
+        );
+        earth_vel + time.ct_matrix() * itrs_vel
+    }
+
+    /// Altitude and azimuth of an ICRS direction, with **no SPICE kernel**.
+    ///
+    /// Takes a catalogue direction (ICRS right ascension and declination of a
+    /// star, in degrees, with no proper motion or parallax applied), applies
+    /// stellar aberration for this observer's barycentric velocity, rotates
+    /// through precession-nutation and Earth rotation, and returns
+    /// `(altitude_degrees, azimuth_degrees)` in the local horizon frame.
+    ///
+    /// Azimuth is measured clockwise from north.
+    ///
+    /// # What is and is not modelled
+    ///
+    /// Gravitational light deflection is **not** applied. For the Sun it
+    /// exceeds 0.36 arcsec only inside about 1.3 deg of the solar limb — never,
+    /// for a night-time observation — and Jupiter contributes at most
+    /// 0.016 arcsec. Annual aberration, at 20.5 arcsec, *is* applied: it is the
+    /// term that makes this function worth having.
+    ///
+    /// Refraction is not applied either; see [`Self::refract`], and note that
+    /// starfield's Bennett model is not ERFA's.
+    pub fn altaz_from_icrs(&self, ra_degrees: f64, dec_degrees: f64, time: &Time) -> (f64, f64) {
+        let ra = ra_degrees * PI / 180.0;
+        let dec = dec_degrees * PI / 180.0;
+        let mut direction = Vector3::new(dec.cos() * ra.cos(), dec.cos() * ra.sin(), dec.sin());
+
+        // NOVAS's aberration routine scales its correction by `light_time`, so
+        // a unit direction needs the light time of one AU to be displaced by
+        // the full v/c. (Passing 0.0 divides by an epsilon instead.)
+        let light_time = 1.0 / crate::constants::C_AUDAY;
+        let velocity = self.approximate_barycentric_velocity(time);
+        crate::relativity::add_aberration(&mut direction, &velocity, light_time);
+
+        let itrs = time.c_matrix() * direction;
+        let (alt, az) = self.itrs_to_horizon(&itrs);
+        (alt * 180.0 / PI, az * 180.0 / PI)
+    }
 }
 
 impl std::fmt::Display for GeographicPosition {
